@@ -16,6 +16,12 @@ class AudioEngine {
     this.autoMixEnabled = false;
     this.crossfadePosition = 0.5; // 0 = track A, 1 = track B
     this.isTransitioning = false;
+    this.isSeeking = false;
+    
+    // AI DJ intelligent transition timing
+    this.transitionStartTime = null;
+    this.hasStartedTransition = false;
+    this.nextTrackPitchRatio = 1.0;
     
     // Mixing parameters
     this.stemVolumes = {
@@ -233,29 +239,209 @@ class AudioEngine {
     const numChannels = 2;
     const length = sampleRate * duration;
     
+    // Create completely silent buffer - no fake noise
     const buffer = this.audioContext.createBuffer(numChannels, length, sampleRate);
     
-    // Fill with very quiet noise to simulate audio
-    for (let channel = 0; channel < numChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      for (let i = 0; i < length; i++) {
-        channelData[i] = (Math.random() - 0.5) * 0.01;
-      }
-    }
-    
+    // Buffers are initialized to silence by default, no need to fill
     return buffer;
   }
 
+  formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
   async detectBPM(stemData) {
-    // Simplified BPM detection - in reality would use beat detection algorithms
     if (!stemData || !stemData.buffer) {
-      return 120; // Default BPM
+      return { bpm: 120, beatGrid: [] }; // Default BPM with empty beat grid
+    }
+
+    try {
+      // Use the drums stem for better beat detection
+      const audioBuffer = stemData.buffer;
+      const sampleRate = audioBuffer.sampleRate;
+      const channelData = audioBuffer.getChannelData(0); // Use first channel
+      
+      // Analyze first 60 seconds for comprehensive beat detection
+      const analyzeLength = Math.min(sampleRate * 60, channelData.length);
+      const analysisData = channelData.slice(0, analyzeLength);
+      
+      // Apply high-pass filter to emphasize beats
+      const filteredData = this.highPassFilter(analysisData, sampleRate, 60);
+      
+      // Detect tempo and beat grid using autocorrelation
+      const result = this.autocorrelationBPMWithGrid(filteredData, sampleRate);
+      
+      console.log(`🎵 Detected BPM: ${result.bpm} with ${result.beatGrid.length} beat markers`);
+      
+      // Notify UI of BPM detection with beat grid
+      this.notifyListeners('bpmDetected', { 
+        bpm: result.bpm, 
+        beatGrid: result.beatGrid,
+        waveform: this.generateWaveformData(channelData)
+      });
+      
+      return result.bpm;
+      
+    } catch (error) {
+      console.warn('BPM detection failed, using default:', error);
+      return 120;
+    }
+  }
+
+  highPassFilter(data, sampleRate, cutoffFreq) {
+    // Simple high-pass filter to emphasize kick drums and beats
+    const alpha = 1 / (1 + (2 * Math.PI * cutoffFreq) / sampleRate);
+    const filtered = new Float32Array(data.length);
+    
+    let prevInput = 0;
+    let prevOutput = 0;
+    
+    for (let i = 0; i < data.length; i++) {
+      filtered[i] = alpha * (prevOutput + data[i] - prevInput);
+      prevInput = data[i];
+      prevOutput = filtered[i];
     }
     
-    // Simulate BPM detection with some variation
-    const baseBPM = 120;
-    const variation = Math.random() * 40 - 20; // ±20 BPM variation
-    return Math.round(baseBPM + variation);
+    return filtered;
+  }
+
+  autocorrelationBPMWithGrid(data, sampleRate) {
+    // Calculate energy to find beat onsets
+    const windowSize = 1024;
+    const hopSize = 512;
+    const energyValues = [];
+    
+    for (let i = 0; i < data.length - windowSize; i += hopSize) {
+      let energy = 0;
+      for (let j = 0; j < windowSize; j++) {
+        energy += Math.abs(data[i + j]);
+      }
+      energyValues.push(energy);
+    }
+    
+    // Find peaks in energy (beat onsets)
+    const peaks = this.findPeaks(energyValues, 0.3);
+    
+    if (peaks.length < 4) return { bpm: 120, beatGrid: [] }; // Need at least 4 beats
+    
+    // Calculate intervals between beats
+    const intervals = [];
+    for (let i = 1; i < peaks.length; i++) {
+      const interval = (peaks[i] - peaks[i-1]) * hopSize / sampleRate;
+      if (interval > 0.3 && interval < 2.0) { // Valid beat intervals
+        intervals.push(interval);
+      }
+    }
+    
+    if (intervals.length === 0) return { bpm: 120, beatGrid: [] };
+    
+    // Find most common interval (tempo)
+    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+    let bpm = Math.round(60 / avgInterval);
+    
+    // Ensure BPM is in reasonable range
+    if (bpm < 60) bpm = bpm * 2;
+    if (bpm > 200) bpm = Math.round(bpm / 2);
+    bpm = Math.max(60, Math.min(200, bpm));
+    
+    // Generate beat grid with precise timing
+    const beatGrid = this.generateBeatGrid(peaks, hopSize, sampleRate, bpm);
+    
+    return { bpm, beatGrid };
+  }
+
+  generateBeatGrid(peaks, hopSize, sampleRate, bpm) {
+    const beatGrid = [];
+    const beatInterval = 60 / bpm; // seconds between beats
+    
+    // Convert peak indices to time positions
+    const beatTimes = peaks.map(peak => (peak * hopSize) / sampleRate);
+    
+    // Create a more precise beat grid by interpolating
+    if (beatTimes.length > 0) {
+      const firstBeat = beatTimes[0];
+      const duration = 60; // Analyze first 60 seconds
+      
+      // Generate regular beat grid from first detected beat
+      for (let time = firstBeat; time < duration; time += beatInterval) {
+        beatGrid.push({
+          time: time,
+          type: 'beat',
+          confidence: this.calculateBeatConfidence(time, beatTimes, beatInterval)
+        });
+      }
+      
+      // Add downbeats (every 4 beats for 4/4 time)
+      for (let i = 0; i < beatGrid.length; i += 4) {
+        if (beatGrid[i]) {
+          beatGrid[i].type = 'downbeat';
+          beatGrid[i].confidence = Math.min(1.0, beatGrid[i].confidence + 0.2);
+        }
+      }
+    }
+    
+    return beatGrid;
+  }
+
+  calculateBeatConfidence(time, detectedBeats, beatInterval) {
+    // Find the closest detected beat to this theoretical beat time
+    let minDistance = Infinity;
+    for (const beatTime of detectedBeats) {
+      const distance = Math.abs(time - beatTime);
+      minDistance = Math.min(minDistance, distance);
+    }
+    
+    // Convert distance to confidence (closer = higher confidence)
+    const maxAcceptableDistance = beatInterval * 0.1; // 10% tolerance
+    const confidence = Math.max(0, 1 - (minDistance / maxAcceptableDistance));
+    return Math.min(1, confidence);
+  }
+
+  generateWaveformData(channelData) {
+    const waveformPoints = 1000; // Reduce to 1000 points for performance
+    const samplesPerPoint = Math.floor(channelData.length / waveformPoints);
+    const waveform = [];
+    
+    for (let i = 0; i < waveformPoints; i++) {
+      let sum = 0;
+      let max = 0;
+      const startSample = i * samplesPerPoint;
+      const endSample = Math.min(startSample + samplesPerPoint, channelData.length);
+      
+      // Calculate RMS and peak for this segment
+      for (let j = startSample; j < endSample; j++) {
+        const sample = Math.abs(channelData[j]);
+        sum += sample * sample;
+        max = Math.max(max, sample);
+      }
+      
+      const rms = Math.sqrt(sum / (endSample - startSample));
+      waveform.push({
+        rms: rms,
+        peak: max,
+        time: (i * samplesPerPoint) / 48000 // Assuming 48kHz sample rate
+      });
+    }
+    
+    return waveform;
+  }
+
+  findPeaks(data, threshold) {
+    const peaks = [];
+    const maxVal = Math.max(...data);
+    const minThreshold = maxVal * threshold;
+    
+    for (let i = 1; i < data.length - 1; i++) {
+      if (data[i] > data[i-1] && 
+          data[i] > data[i+1] && 
+          data[i] > minThreshold) {
+        peaks.push(i);
+      }
+    }
+    
+    return peaks;
   }
 
   async play() {
@@ -290,6 +476,9 @@ class AudioEngine {
       if (stemData && stemData.buffer) {
         const source = this.audioContext.createBufferSource();
         source.buffer = stemData.buffer;
+        
+        // Apply pitch shifting for tempo matching (default is 1.0)
+        source.playbackRate.value = 1.0;
         
         // Connect to appropriate gain node
         const gainNode = this.stemGains[stemName]?.trackA || this.trackAGain;
@@ -326,37 +515,58 @@ class AudioEngine {
         this.currentTime = Math.min(newCurrentTime, this.currentTrack.duration || this.duration);
         
         // Format time for display
-        const formatTime = (seconds) => {
-          const mins = Math.floor(seconds / 60);
-          const secs = Math.floor(seconds % 60);
-          return `${mins}:${secs.toString().padStart(2, '0')}`;
-        };
-        
         this.notifyListeners('timeUpdate', {
           currentTime: this.currentTime,
           duration: this.currentTrack.duration || this.duration,
-          currentTimeFormatted: formatTime(this.currentTime),
-          durationFormatted: formatTime(this.currentTrack.duration || this.duration),
+          currentTimeFormatted: this.formatTime(this.currentTime),
+          durationFormatted: this.formatTime(this.currentTrack.duration || this.duration),
           progress: (this.currentTime / (this.currentTrack.duration || this.duration)) * 100
         });
         
-        // Check if track ended
+        // AI DJ intelligent transition timing
+        this.checkIntelligentTransitionTiming();
+        
+        // Check if track has completely ended
         if (this.currentTime >= (this.currentTrack.duration || this.duration) - 0.1) {
           this.handleTrackEnd();
+          clearInterval(this.timeUpdateInterval);
           return;
         }
-        
-        requestAnimationFrame(updateTime);
       }
     };
     
-    requestAnimationFrame(updateTime);
+    // Use setInterval for reliable updates (60 FPS, works even when tab is not focused)  
+    this.timeUpdateInterval = setInterval(updateTime, 16);
   }
 
   pause() {
     this.isPlaying = false;
     this.stopAllSources();
     this.notifyListeners('playbackPaused');
+  }
+
+  playDeck(deck) {
+    console.log(`🎵 Playing Deck ${deck}`);
+    // Individual deck control - start specific deck playback
+    if (deck === 'A' && this.currentTrack) {
+      this.play();
+    } else if (deck === 'B' && this.nextTrack) {
+      this.startNextTrackPlayback();
+    }
+    this.notifyListeners('deckPlaybackStarted', { deck });
+  }
+
+  pauseDeck(deck) {
+    console.log(`🎵 Pausing Deck ${deck}`);
+    // Individual deck control - pause specific deck
+    if (deck === 'A') {
+      // Fade out deck A
+      this.animateGain(this.trackAGain.gain, this.trackAGain.gain.value, 0, 300);
+    } else if (deck === 'B') {
+      // Fade out deck B
+      this.animateGain(this.trackBGain.gain, this.trackBGain.gain.value, 0, 300);
+    }
+    this.notifyListeners('deckPlaybackPaused', { deck });
   }
 
   stop() {
@@ -378,6 +588,47 @@ class AudioEngine {
           stemData.source = null;
         }
       });
+    }
+  }
+
+  seekToTime(time) {
+    if (!this.currentTrack || this.isSeeking) return;
+    
+    console.log(`🎵 Seeking to ${time}s in current track`);
+    
+    // Set seeking flag to prevent multiple seeks
+    this.isSeeking = true;
+    
+    const wasPlaying = this.isPlaying;
+    
+    // Clear existing time interval to prevent conflicts
+    if (this.timeUpdateInterval) {
+      clearInterval(this.timeUpdateInterval);
+    }
+    
+    // Stop current playback
+    this.stopAllSources();
+    
+    // Update current time and ensure it stays set
+    this.currentTime = Math.max(0, Math.min(time, this.currentTrack.duration));
+    
+    // Update UI immediately with new time
+    this.notifyListeners('timeUpdate', {
+      currentTime: this.currentTime,
+      currentTimeFormatted: this.formatTime(this.currentTime),
+      durationFormatted: this.formatTime(this.currentTrack.duration),
+      progress: (this.currentTime / this.currentTrack.duration) * 100
+    });
+    
+    // Restart playback from new position if it was playing
+    if (wasPlaying) {
+      // Small delay to ensure time is set properly
+      setTimeout(() => {
+        this.startPlayback();
+        this.isSeeking = false;
+      }, 50);
+    } else {
+      this.isSeeking = false;
     }
   }
 
@@ -484,19 +735,227 @@ class AudioEngine {
     this.distortionNode.curve = curve;
   }
 
-  async handleTrackEnd() {
-    console.log('Track ended, handling transition...');
-    
-    // Prevent multiple transition attempts
-    if (this.isTransitioning) {
-      console.log('Transition already in progress, skipping...');
+  checkIntelligentTransitionTiming() {
+    if (!this.autoMixEnabled || !this.nextTrack || this.hasStartedTransition || this.isTransitioning || this.isSeeking) {
       return;
     }
     
-    if (this.autoMixEnabled && this.nextTrack) {
-      console.log('Auto-mix enabled, starting intelligent transition');
+    const currentDuration = this.currentTrack.duration || this.duration;
+    const timeRemaining = currentDuration - this.currentTime;
+    
+    // Start intelligent layering 30 seconds before track ends
+    if (timeRemaining <= 30 && timeRemaining > 25) {
+      console.log(`🎵 AI DJ: Starting intelligent transition with ${Math.round(timeRemaining)}s remaining`);
+      this.hasStartedTransition = true;
       this.isTransitioning = true;
-      await this.startIntelligentTransition();
+      this.startIntelligentTransition();
+    }
+  }
+
+  triggerManualTransition() {
+    if (!this.autoMixEnabled) {
+      console.log('🚀 Manual transition blocked - Auto-mix is off');
+      return;
+    }
+    
+    if (this.isTransitioning) {
+      console.log('🚀 Manual transition blocked - Already transitioning');
+      return;
+    }
+    
+    if (!this.nextTrack) {
+      console.log('🚀 Manual transition blocked - No next track available');
+      return;
+    }
+    
+    console.log('🚀 MANUAL TRANSITION TRIGGERED - Finding best transition point with advanced techniques!');
+    
+    // Force immediate intelligent transition with enhanced techniques
+    this.hasStartedTransition = true;
+    this.isTransitioning = true;
+    
+    // Enhanced transition with looping and layering
+    this.performAdvancedManualTransition();
+  }
+
+  async performAdvancedManualTransition() {
+    console.log('🎧 AI DJ: Performing advanced manual transition with looping and layering');
+    
+    const currentBPM = this.currentTrack?.bmp || 120;
+    const nextBPM = this.nextTrack?.bmp || 120;
+    const bpmDifference = Math.abs(currentBPM - nextBPM);
+    
+    console.log(`🎵 AI DJ: Manual transition - Current: ${currentBPM} BPM, Next: ${nextBPM} BPM, Diff: ${bpmDifference}`);
+    
+    // Advanced transition selection based on BPM difference with enhanced techniques
+    if (bpmDifference <= 5) {
+      console.log('🎵 Using loop-layer transition (similar BPMs)');
+      await this.performLoopLayerTransition();
+    } else if (bpmDifference <= 15) {
+      console.log('🎵 Using beat-matched loop transition (moderate BPM difference)');
+      await this.performBeatMatchLoopTransition();
+    } else {
+      console.log('🎵 Using creative loop-break transition (large BPM difference)');
+      await this.performCreativeLoopBreakTransition();
+    }
+  }
+
+  async performLoopLayerTransition() {
+    console.log('🎵 AI DJ: Performing loop-layer transition');
+    
+    // Create loop effect by emphasizing drums and bass
+    if (this.stemGains.drums && this.stemGains.drums.gain) {
+      this.animateGain(this.stemGains.drums, this.stemGains.drums.gain.value, 1.2, 1000);
+    }
+    if (this.stemGains.bass && this.stemGains.bass.gain) {
+      this.animateGain(this.stemGains.bass, this.stemGains.bass.gain.value, 1.1, 1000);
+    }
+    
+    // Start next track quietly in background
+    await this.startBackgroundLayer();
+    
+    // Layer elements over 8 seconds
+    await this.performAdvancedElementMixing(8000);
+    
+    // Final crossfade
+    await this.performSmoothCrossfade(4000);
+    
+    this.completeTransition();
+  }
+
+  async performBeatMatchLoopTransition() {
+    console.log('🎵 AI DJ: Performing beat-matched loop transition');
+    
+    const pitchRatio = (this.currentTrack?.bmp || 120) / (this.nextTrack?.bmp || 120);
+    console.log(`🎛️ Applying pitch shift ratio: ${pitchRatio.toFixed(3)}`);
+    
+    this.setupPitchShifting(pitchRatio);
+    
+    // Apply filter sweep for creative effect
+    if (this.effectNodes.deckA?.filterNode) {
+      const filter = this.effectNodes.deckA.filterNode;
+      this.animateFrequency(filter, 20000, 500, 2000); // High-pass sweep
+    }
+    
+    // Perform loop layer transition with tempo matching
+    await this.performLoopLayerTransition();
+  }
+
+  async performCreativeLoopBreakTransition() {
+    console.log('🎵 AI DJ: Performing creative loop-break transition');
+    
+    // Dramatic filter sweep
+    if (this.effectNodes.deckA?.filterNode) {
+      const filter = this.effectNodes.deckA.filterNode;
+      filter.frequency.setValueAtTime(20000, this.audioContext.currentTime);
+      filter.frequency.linearRampToValueAtTime(500, this.audioContext.currentTime + 2);
+    }
+    
+    // Emphasize drums for loop effect
+    if (this.stemGains.drums && this.stemGains.drums.gain) {
+      this.animateGain(this.stemGains.drums, this.stemGains.drums.gain.value, 1.5, 1000);
+    }
+    
+    // Reduce other elements
+    if (this.stemGains.vocals && this.stemGains.vocals.gain) {
+      this.animateGain(this.stemGains.vocals, this.stemGains.vocals.gain.value, 0.3, 1500);
+    }
+    if (this.stemGains.other && this.stemGains.other.gain) {
+      this.animateGain(this.stemGains.other, this.stemGains.other.gain.value, 0.4, 1500);
+    }
+    
+    // Start next track after 3 seconds with impact
+    setTimeout(async () => {
+      await this.startNextTrackPlayback();
+      
+      // Slam effect - quick crossfade
+      this.performSmoothCrossfade(800);
+      
+      // Release filter
+      if (this.effectNodes.deckB?.filterNode) {
+        const filter = this.effectNodes.deckB.filterNode;
+        filter.frequency.setValueAtTime(500, this.audioContext.currentTime);
+        filter.frequency.linearRampToValueAtTime(20000, this.audioContext.currentTime + 0.5);
+      }
+      
+      this.completeTransition();
+    }, 3000);
+  }
+
+  async performAdvancedElementMixing(duration) {
+    console.log(`🎛️ AI DJ: Advanced element mixing over ${duration/1000}s`);
+    
+    const phases = [
+      { element: 'bass', delay: 0, gain: 0.8, description: 'Bass foundation' },
+      { element: 'drums', delay: duration * 0.3, gain: 0.9, description: 'Drum layer' },
+      { element: 'other', delay: duration * 0.6, gain: 0.7, description: 'Harmonic elements' },
+      { element: 'vocals', delay: duration * 0.8, gain: 0.8, description: 'Vocal layer' }
+    ];
+    
+    phases.forEach(phase => {
+      setTimeout(() => {
+        console.log(`🎵 Bringing in ${phase.description}`);
+        if (this.nextTrackStemGains && this.nextTrackStemGains[phase.element]) {
+          this.animateGain(
+            this.nextTrackStemGains[phase.element], 
+            0, 
+            phase.gain, 
+            duration * 0.2
+          );
+        }
+      }, phase.delay);
+    });
+  }
+
+  animateFrequency(filterNode, startFreq, endFreq, duration) {
+    const startTime = this.audioContext.currentTime;
+    const endTime = startTime + (duration / 1000);
+    
+    filterNode.frequency.setValueAtTime(startFreq, startTime);
+    filterNode.frequency.linearRampToValueAtTime(endFreq, endTime);
+  }
+
+  async handleTrackEnd() {
+    console.log('Track ended, handling transition...');
+    
+    // If we already started a transition, just complete it
+    if (this.hasStartedTransition) {
+      console.log('Transition already started, completing...');
+      this.completeTransition();
+      return;
+    }
+    
+    // Prevent multiple transition attempts during seek operations
+    if (this.isTransitioning || this.isSeeking) {
+      console.log('Transition in progress or seeking, skipping...');
+      return;
+    }
+    
+    if (this.autoMixEnabled) {
+      if (!this.nextTrack) {
+        console.log('🎵 No next track loaded, requesting from queue system...');
+        this.notifyListeners('requestNextTrack', { 
+          currentDeck: this.currentDeck || 'A',
+          needsDeckSwitch: true 
+        });
+        
+        // Wait a moment for the next track to be loaded
+        setTimeout(async () => {
+          if (this.nextTrack) {
+            console.log('✅ Next track loaded, starting transition...');
+            this.isTransitioning = true;
+            await this.startIntelligentTransition();
+          } else {
+            console.log('⚠️ Still no next track, stopping playback');
+            this.notifyListeners('trackEnded');
+            this.pause();
+          }
+        }, 100);
+      } else {
+        console.log('Auto-mix enabled, starting transition');
+        this.isTransitioning = true;
+        await this.startIntelligentTransition();
+      }
     } else {
       // Just notify that playback ended
       this.notifyListeners('trackEnded');
@@ -561,7 +1020,11 @@ class AudioEngine {
       this.trackAGain.gain.value = currentTrackGain;
       this.trackBGain.gain.value = nextTrackGain;
       
-      console.log(`🎵 AI DJ: Crossfade progress: ${Math.round(progress * 100)}%`);
+      // Log progress every 20% to reduce console spam
+      const progressPercent = Math.round(progress * 100);
+      if (progressPercent % 20 === 0) {
+        console.log(`🎵 AI DJ: Crossfade progress: ${progressPercent}%`);
+      }
       
       currentStep++;
       if (currentStep >= steps) {
@@ -574,16 +1037,17 @@ class AudioEngine {
   async performTempoMatchedTransition() {
     console.log('🎵 AI DJ: Performing beat-matched transition');
     
-    // Gradually adjust tempo of next track to match current
-    const targetBPM = this.currentTrack.bpm || 120;
+    const currentBPM = this.currentTrack.bpm || 120;
     const nextBPM = this.nextTrack.bpm || 120;
-    const bpmRatio = targetBPM / nextBPM;
+    const bpmRatio = currentBPM / nextBPM;
     
-    // Apply tempo adjustment (simulated - in reality would use pitch shifting)
-    console.log(`🎵 AI DJ: Adjusting next track tempo by ${bpmRatio.toFixed(2)}x`);
+    console.log(`🎵 AI DJ: Matching ${nextBPM} BPM to ${currentBPM} BPM (${bpmRatio.toFixed(2)}x)`);
     
-    // Start crossfade with tempo matching
-    await this.performSmoothCrossfade();
+    // Apply real pitch shifting to match tempos
+    this.setupPitchShifting(bpmRatio);
+    
+    // Start professional layered transition
+    await this.performLayeredTransition();
   }
 
   async performBreakTransition() {
@@ -592,8 +1056,20 @@ class AudioEngine {
     // Apply filter sweep effect on current track
     this.applyFilterSweep();
     
-    // Wait 2 seconds, then start next track with impact
-    setTimeout(() => {
+    // Load and start next track immediately at low volume
+    await this.startNextTrackPlayback();
+    
+    // Set all next track stems to 0 volume initially  
+    Object.keys(this.nextTrack.stems).forEach(stemName => {
+      if (this.stemGains[stemName] && this.stemGains[stemName].trackB) {
+        this.stemGains[stemName].trackB.gain.value = 0;
+      }
+    });
+    
+    // Wait 2 seconds, then bring in next track with impact
+    setTimeout(async () => {
+      // Bring in next track with full volume
+      await this.animateGain(this.trackBGain.gain, 0, 0.8, 500); // 0.5 second slam in
       this.completeTransition();
     }, 2500); // Slightly longer to ensure filter sweep completes
   }
@@ -656,6 +1132,12 @@ class AudioEngine {
         const source = this.audioContext.createBufferSource();
         source.buffer = stemData.buffer;
         
+        // Apply real pitch shifting for tempo matching
+        source.playbackRate.value = this.nextTrackPitchRatio || 1.0;
+        if (this.nextTrackPitchRatio !== 1.0) {
+          console.log(`🎵 AI DJ: Applying ${this.nextTrackPitchRatio.toFixed(2)}x pitch shift to ${stemName}`);
+        }
+        
         // Connect to deck B
         const gainNode = this.stemGains[stemName]?.trackB || this.trackBGain;
         source.connect(gainNode);
@@ -694,11 +1176,102 @@ class AudioEngine {
     }, stepDuration);
   }
 
+  setupPitchShifting(pitchRatio) {
+    // Create real pitch shifting using Web Audio API
+    if (!this.nextTrack || !this.nextTrack.stems) return;
+    
+    console.log(`🎵 AI DJ: Setting up pitch shifting at ${pitchRatio.toFixed(2)}x ratio`);
+    
+    // Store pitch ratio for playback adjustment
+    this.nextTrackPitchRatio = pitchRatio;
+  }
+
+  async performLayeredTransition() {
+    console.log('🎵 AI DJ: Starting professional layered transition');
+    
+    // Phase 1: Start layering the next track quietly underneath
+    await this.startBackgroundLayer();
+    
+    // Phase 2: Gradually bring in elements of the next track
+    await this.performElementMixing();
+    
+    // Phase 3: Complete the transition
+    this.completeTransition();
+  }
+
+  async startBackgroundLayer() {
+    console.log('🎵 AI DJ: Starting background layer of next track');
+    
+    // Start next track very quietly (20% volume) on Deck B
+    await this.startNextTrackPlayback();
+    
+    // Set all stems to very low volume initially
+    Object.keys(this.nextTrack.stems).forEach(stemName => {
+      if (this.stemGains[stemName] && this.stemGains[stemName].trackB) {
+        this.stemGains[stemName].trackB.gain.value = this.stemVolumes[stemName] * 0.2;
+      }
+    });
+    
+    // Wait 4 seconds while tracks play together
+    await new Promise(resolve => setTimeout(resolve, 4000));
+  }
+
+  async performElementMixing() {
+    console.log('🎵 AI DJ: Performing intelligent element mixing');
+    
+    // Professional DJ technique: Bring in bass first, then drums, then others
+    const mixingOrder = ['bass', 'drums', 'other', 'vocals'];
+    
+    for (const stemName of mixingOrder) {
+      if (this.nextTrack.stems[stemName] && this.stemGains[stemName]) {
+        console.log(`🎵 AI DJ: Layering in ${stemName} stem`);
+        
+        // Gradually bring in this element over 2 seconds
+        await this.animateGain(
+          this.stemGains[stemName].trackB.gain,
+          this.stemGains[stemName].trackB.gain.value,
+          this.stemVolumes[stemName] * 0.8,
+          2000
+        );
+        
+        // Wait 1 second before next element
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    // Final crossfade
+    await this.performSmoothCrossfade();
+  }
+
+  async animateGain(gainNode, startValue, endValue, duration) {
+    return new Promise(resolve => {
+      const steps = 50;
+      const stepDuration = duration / steps;
+      const valueStep = (endValue - startValue) / steps;
+      
+      let currentStep = 0;
+      const interval = setInterval(() => {
+        gainNode.value = startValue + (valueStep * currentStep);
+        currentStep++;
+        
+        if (currentStep >= steps) {
+          gainNode.value = endValue;
+          clearInterval(interval);
+          resolve();
+        }
+      }, stepDuration);
+    });
+  }
+
   completeTransition() {
     this.currentTrack = this.nextTrack;
     this.nextTrack = null;
+    this.nextTrackPitchRatio = 1.0; // Reset pitch ratio
     this.setCrossfade(0); // Reset to track A
     this.isTransitioning = false; // Reset transition flag
+    this.hasStartedTransition = false; // Reset AI timing flag
+    this.transitionStartTime = null; // Reset timing
+    console.log('🎵 AI DJ: Transition complete, ready for next track');
     this.notifyListeners('transitionComplete');
   }
 
