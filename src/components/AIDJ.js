@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { Play, Pause, SkipForward, SkipBack, Volume2, Shuffle, Settings, Plus, X, BarChart3, Music, Check, GripVertical, Info, Sliders, Zap, Filter, RotateCcw, FastForward, Rewind } from 'lucide-react';
 import storage from '../utils/storage';
 import audioEngine from '../utils/audioEngine';
+import ProfessionalBeatViewport from './ProfessionalBeatViewport';
 
 const AIDJContainer = styled.div`
   padding: 30px;
@@ -1658,162 +1659,31 @@ function AIDJ() {
               <span>{currentTrack.durationFormatted || '0:00'}</span>
             </TimeDisplay>
 
-            {/* Professional Dual-Deck Beatgrid Visualization */}
-            <div style={{ marginBottom: '16px' }}>
-              {/* Deck A Beatgrid - Live Track */}
-              <div style={{ marginBottom: '8px' }}>
-                <h4 style={{ color: '#00ff88', fontSize: '12px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  🎵 Deck A - {currentTrack.title || 'No Track'}
-                  <span style={{ fontSize: '10px', color: '#666' }}>
-                    ({Math.floor((currentTrack.currentTime || 0) / 60)}:{String(Math.floor((currentTrack.currentTime || 0) % 60)).padStart(2, '0')} / {currentTrack.durationFormatted || '0:00'})
-                  </span>
-                </h4>
-                <WaveformContainer style={{ background: 'linear-gradient(90deg, #001a0d 0%, #002a1a 100%)', height: '80px' }}>
-                  <WaveformCanvas ref={waveformCanvasRef} style={{ height: '80px' }} />
-                  <BeatGridOverlay>
-                    {/* Show 20-second window around current position */}
-                    {beatGrid.filter(beat => {
-                      const currentTime = currentTrack.currentTime || 0;
-                      return beat.time >= currentTime - 10 && beat.time <= currentTime + 10;
-                    }).map((beat, index) => {
-                      const currentTime = currentTrack.currentTime || 0;
-                      const relativeTime = beat.time - (currentTime - 10);
-                      const position = (relativeTime / 20) * 100; // 20-second window
-                      return (
-                        <BeatMarker
-                          key={index}
-                          $type={beat.type}
-                          $confidence={beat.confidence}
-                          $position={Math.max(0, Math.min(100, position))}
-                          style={{ backgroundColor: beat.type === 'downbeat' ? '#00ff88' : '#ffffff' }}
-                        />
-                      );
-                    })}
-                    <PlayheadMarker 
-                      $position={50} // Fixed at center of 20-second window
-                      style={{ backgroundColor: '#00ff88', boxShadow: '0 0 10px #00ff88' }}
-                      title="Current Position - Deck A"
-                    />
-                    <div style={{ 
-                      position: 'absolute', 
-                      bottom: '2px', 
-                      left: '4px', 
-                      fontSize: '10px', 
-                      color: '#00ff88' 
-                    }}>
-                      -10s
-                    </div>
-                    <div style={{ 
-                      position: 'absolute', 
-                      bottom: '2px', 
-                      right: '4px', 
-                      fontSize: '10px', 
-                      color: '#00ff88' 
-                    }}>
-                      +10s
-                    </div>
-                  </BeatGridOverlay>
-                </WaveformContainer>
-              </div>
-
-              {/* Deck B Beatgrid - Next Track */}
-              <div>
-                <h4 style={{ color: '#88ff00', fontSize: '12px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  🎵 Deck B - {deckBQueue.length > 0 ? deckBQueue[0].title : 'No Track Loaded'}
-                  <span style={{ fontSize: '10px', color: '#666' }}>
-                    (Ready for transition)
-                  </span>
-                </h4>
-                <WaveformContainer style={{ background: 'linear-gradient(90deg, #1a1a00 0%, #2a2a00 100%)', height: '80px' }}>
-                  <WaveformCanvas style={{ height: '80px', opacity: deckBQueue.length > 0 ? 0.8 : 0.3 }} />
-                  <BeatGridOverlay>
-                    {deckBQueue.length > 0 ? (
-                      <>
-                        {/* Deck B would show its own beatgrid here */}
-                        {deckBTrack ? (
-                          <>
-                            {/* Show actual Deck B beatgrid */}
-                            {deckBBeatGrid.slice(0, 20).map((beat, index) => {
-                              const position = (beat.time / 20) * 100; // First 20 seconds
-                              return (
-                                <BeatMarker
-                                  key={index}
-                                  $type={beat.type}
-                                  $confidence={beat.confidence}
-                                  $position={position}
-                                  style={{ backgroundColor: beat.type === 'downbeat' ? '#88ff00' : '#cccccc' }}
-                                />
-                              );
-                            })}
-                            <div style={{ 
-                              position: 'absolute', 
-                              top: '4px', 
-                              left: '4px', 
-                              color: '#88ff00',
-                              fontSize: '10px',
-                              fontWeight: 'bold'
-                            }}>
-                              {deckBTrack.bmp || 120} BPM • Ready for transition
-                            </div>
-                          </>
-                        ) : (
-                          <div style={{ 
-                            position: 'absolute', 
-                            left: '50%', 
-                            top: '50%', 
-                            transform: 'translate(-50%, -50%)',
-                            color: '#88ff00',
-                            fontSize: '11px',
-                            textAlign: 'center'
-                          }}>
-                            Track loaded • {deckBQueue[0].bpm || 120} BPM
-                            <br />
-                            <span style={{ fontSize: '9px', color: '#666' }}>Loading beatgrid...</span>
-                          </div>
-                        )}
-                        <PlayheadMarker 
-                          $position={50}
-                          style={{ backgroundColor: '#88ff00', boxShadow: '0 0 10px #88ff00', opacity: 0.7 }}
-                          title="Ready Position - Deck B"
-                        />
-                      </>
-                    ) : (
-                      <div style={{ 
-                        position: 'absolute', 
-                        left: '50%', 
-                        top: '50%', 
-                        transform: 'translate(-50%, -50%)',
-                        color: '#666',
-                        fontSize: '11px',
-                        textAlign: 'center'
-                      }}>
-                        Drag track from Main Queue to Deck B
-                        <br />
-                        <span style={{ fontSize: '9px' }}>or wait for AI to load next track</span>
-                      </div>
-                    )}
-                    <div style={{ 
-                      position: 'absolute', 
-                      bottom: '2px', 
-                      left: '4px', 
-                      fontSize: '10px', 
-                      color: '#88ff00' 
-                    }}>
-                      -10s
-                    </div>
-                    <div style={{ 
-                      position: 'absolute', 
-                      bottom: '2px', 
-                      right: '4px', 
-                      fontSize: '10px', 
-                      color: '#88ff00' 
-                    }}>
-                      +10s
-                    </div>
-                  </BeatGridOverlay>
-                </WaveformContainer>
-              </div>
-            </div>
+            {/* Professional DJ Beat Viewport - Serato Style */}
+            <ProfessionalBeatViewport
+              deckATrack={currentTrack}
+              deckBTrack={deckBTrack}
+              deckABeatGrid={beatGrid}
+              deckBBeatGrid={deckBBeatGrid}
+              deckAWaveform={waveformData}
+              deckBWaveform={deckBWaveform}
+              currentTime={currentTrack.currentTime || 0}
+              deckBCurrentTime={0}
+              onCuePointClick={(deck, cue) => {
+                console.log(`🎯 Cue point clicked: ${deck} - ${cue.label} @ ${cue.time}s`);
+                // TODO: Implement cue point functionality
+              }}
+              onLoopRegionClick={(deck, loop) => {
+                console.log(`🔁 Loop region clicked: ${deck} - ${loop.beats} beats`);
+                // TODO: Implement loop functionality
+              }}
+              onWaveformClick={(deck, clickTime) => {
+                console.log(`🎵 Waveform clicked: ${deck} @ ${clickTime.toFixed(2)}s`);
+                if (deck === 'A' && audioEngineRef.current) {
+                  audioEngineRef.current.seekToTime(clickTime);
+                }
+              }}
+            />
 
             {/* Frequency Spectrum Display */}
             <FrequencyBands>

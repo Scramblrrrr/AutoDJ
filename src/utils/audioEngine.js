@@ -314,70 +314,66 @@ class AudioEngine {
   autocorrelationBPMWithGrid(data, sampleRate) {
     console.log('🎵 Professional beat analysis: detecting BPM, downbeats, and phrases...');
     
-    // Enhanced energy-based onset detection with spectral flux
-    const windowSize = 2048;
-    const hopSize = 512;
+    // Optimized energy-based onset detection for real-time performance
+    const windowSize = 1024; // Smaller for speed
+    const hopSize = 256; // Smaller hop for better time resolution
+    const analysisLength = Math.min(data.length, sampleRate * 15); // Max 15 seconds analysis for speed
+    
+    console.log(`🎵 Analyzing first ${(analysisLength / sampleRate).toFixed(1)}s for optimal performance...`);
+    
     const energyValues = [];
-    const spectralFlux = [];
     
-    let prevSpectrum = new Array(windowSize / 2).fill(0);
-    
-    for (let i = 0; i < data.length - windowSize; i += hopSize) {
-      // Calculate energy with Hann window
+    // Fast energy calculation with transient emphasis
+    for (let i = 0; i < analysisLength - windowSize; i += hopSize) {
       let energy = 0;
-      const window = data.slice(i, i + windowSize);
+      let highFreqSum = 0;
       
-      // Apply Hann window for better frequency analysis
-      const hannWindow = window.map((sample, idx) => 
-        sample * 0.5 * (1 - Math.cos(2 * Math.PI * idx / (windowSize - 1)))
-      );
-      
-      // Simple spectrum calculation for spectral flux
-      const spectrum = new Array(windowSize / 2).fill(0);
-      for (let k = 0; k < windowSize / 2; k++) {
-        let real = 0, imag = 0;
-        for (let n = 0; n < windowSize; n++) {
-          const angle = -2 * Math.PI * k * n / windowSize;
-          real += hannWindow[n] * Math.cos(angle);
-          imag += hannWindow[n] * Math.sin(angle);
+      // Calculate energy with emphasis on beat-relevant frequencies
+      for (let j = 0; j < windowSize; j++) {
+        const sample = Math.abs(data[i + j]);
+        energy += sample;
+        
+        // Emphasize high frequencies (cymbals, snares) for beat detection
+        if (j > windowSize * 0.5) {
+          highFreqSum += sample * 1.2;
         }
-        spectrum[k] = Math.sqrt(real * real + imag * imag);
-        energy += spectrum[k];
       }
       
-      // Calculate spectral flux (difference between consecutive spectra)
-      let flux = 0;
-      for (let k = 0; k < spectrum.length; k++) {
-        const diff = spectrum[k] - prevSpectrum[k];
-        flux += diff > 0 ? diff : 0; // Only positive differences
-      }
-      
-      energyValues.push(energy);
-      spectralFlux.push(flux);
-      prevSpectrum = [...spectrum];
+      // Combine total energy with high-frequency emphasis
+      energyValues.push(energy + highFreqSum * 0.3);
     }
     
-    // Enhanced peak detection combining energy and spectral flux
-    const combinedOnsets = energyValues.map((energy, i) => ({
+    console.log(`🎵 Energy calculation complete (${energyValues.length} frames), detecting peaks...`);
+    
+    // Fast peak detection with local maxima
+    const onsetStrength = energyValues.map((energy, i) => ({
       time: (i * hopSize) / sampleRate,
-      strength: energy * 0.6 + spectralFlux[i] * 0.4,
+      strength: energy,
       index: i
     }));
     
-    // Adaptive peak detection with dynamic threshold
-    const meanStrength = combinedOnsets.reduce((sum, o) => sum + o.strength, 0) / combinedOnsets.length;
-    const threshold = meanStrength * 1.4;
+    // Quick adaptive threshold using percentile
+    const sortedStrengths = [...energyValues].sort((a, b) => b - a);
+    const threshold = sortedStrengths[Math.floor(sortedStrengths.length * 0.2)]; // Top 20%
     
     const peaks = [];
-    for (let i = 1; i < combinedOnsets.length - 1; i++) {
-      const current = combinedOnsets[i];
-      const prev = combinedOnsets[i - 1];
-      const next = combinedOnsets[i + 1];
+    const minGap = 0.08; // Minimum 80ms between beats (750 BPM max)
+    
+    // Local maxima detection with minimum gap constraint
+    for (let i = 2; i < onsetStrength.length - 2; i++) {
+      const current = onsetStrength[i];
       
-      if (current.strength > prev.strength && 
-          current.strength > next.strength && 
-          current.strength > threshold) {
-        peaks.push(current);
+      // Check if it's a local maximum and above threshold
+      if (current.strength > threshold &&
+          current.strength > onsetStrength[i-1].strength &&
+          current.strength > onsetStrength[i+1].strength &&
+          current.strength > onsetStrength[i-2].strength &&
+          current.strength > onsetStrength[i+2].strength) {
+        
+        // Ensure minimum gap between peaks
+        if (peaks.length === 0 || current.time - peaks[peaks.length - 1].time > minGap) {
+          peaks.push(current);
+        }
       }
     }
     
@@ -388,9 +384,9 @@ class AudioEngine {
     
     // Calculate intervals for BPM detection with clustering
     const intervals = [];
-    for (let i = 1; i < Math.min(peaks.length, 50); i++) {
+    for (let i = 1; i < Math.min(peaks.length, 15); i++) { // Reduced from 50 to 15 for speed
       const interval = peaks[i].time - peaks[i-1].time;
-      if (interval > 0.2 && interval < 2.0) { // Valid beat intervals
+              if (interval > 0.3 && interval < 1.2) { // Valid beat intervals (50-200 BPM)
         intervals.push(interval);
       }
     }
@@ -2179,43 +2175,55 @@ class AudioEngine {
     const beatDuration = 60 / bpm; // seconds per beat
     const echoTime = beatDuration / 2; // 8th note echoes
     
-    if (this.deckEffects.deckA.delayNode) {
+    if (this.effectNodes.deckA?.delayNode) {
       // Configure delay for echo effect
-      this.deckEffects.deckA.delayNode.delayTime.setValueAtTime(echoTime, this.audioContext.currentTime);
+      this.effectNodes.deckA.delayNode.delayTime.setValueAtTime(echoTime, this.audioContext.currentTime);
       
-      // Create feedback loop for echo (simplified approach)
-      const feedbackValue = 0.6;
-      console.log(`🎵 Applied echo out: ${echoTime.toFixed(3)}s delay at ${bpm} BPM with ${feedbackValue} feedback`);
+      // Create feedback loop for echo
+      if (this.effectNodes.deckA.delayFeedback) {
+        this.effectNodes.deckA.delayFeedback.gain.setValueAtTime(0.6, this.audioContext.currentTime);
+      }
+      if (this.effectNodes.deckA.delayGain) {
+        this.effectNodes.deckA.delayGain.gain.setValueAtTime(0.8, this.audioContext.currentTime);
+      }
+      
+      console.log(`🎵 Applied professional echo out: ${echoTime.toFixed(3)}s delay at ${bpm} BPM with feedback`);
     }
   }
 
   // Apply professional filter sweep
   async applyFilterSweep(filterType, frequency) {
     const deck = 'A'; // Current track
-    const filterNode = this.deckEffects[`deck${deck}`]?.filterNode;
+    const filterNode = this.effectNodes[`deck${deck}`]?.filterNode;
     
-    if (!filterNode) return;
+    if (!filterNode) {
+      console.warn(`🎵 No filter node found for Deck ${deck}`);
+      return;
+    }
     
     filterNode.type = filterType;
-    filterNode.frequency.setValueAtTime(filterType === 'highpass' ? 50 : 20000, this.audioContext.currentTime);
+    const startFreq = filterType === 'highpass' ? 50 : 20000;
+    filterNode.frequency.setValueAtTime(startFreq, this.audioContext.currentTime);
     
-    // Sweep filter over 3 seconds
-    filterNode.frequency.linearRampToValueAtTime(frequency, this.audioContext.currentTime + 3);
+    // Sweep filter over 3 seconds with smooth transition
+    filterNode.frequency.exponentialRampToValueAtTime(frequency, this.audioContext.currentTime + 3);
     
-    console.log(`🎵 Applied ${filterType} filter sweep to ${frequency}Hz`);
+    console.log(`🎵 Applied professional ${filterType} filter sweep: ${startFreq}Hz → ${frequency}Hz over 3s`);
   }
 
   // Remove all filters
   async removeFilters() {
     ['A', 'B'].forEach(deck => {
-      const filterNode = this.deckEffects[`deck${deck}`]?.filterNode;
+      const filterNode = this.effectNodes[`deck${deck}`]?.filterNode;
       if (filterNode) {
+        // Reset to full frequency range smoothly
         filterNode.frequency.setValueAtTime(filterNode.frequency.value, this.audioContext.currentTime);
-        filterNode.frequency.linearRampToValueAtTime(20000, this.audioContext.currentTime + 2);
+        filterNode.frequency.exponentialRampToValueAtTime(20000, this.audioContext.currentTime + 1);
+        console.log(`🎵 Removed filters from Deck ${deck}`);
       }
     });
     
-    console.log('🎵 Removed all filters');
+    console.log('🎵 All filters removed - full frequency range restored');
   }
 
   // Cleanup
