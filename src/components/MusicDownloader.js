@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { Download, Link, CheckCircle, AlertCircle, Clock, Play, Youtube, Music, FolderOpen } from 'lucide-react';
+import { Download, Link, CheckCircle, AlertCircle, Clock, Play, Youtube, Music, FolderOpen, X, ExternalLink } from 'lucide-react';
 import storage from '../utils/storage';
 import fileManager from '../utils/fileManager';
 import FFmpegInstallGuide from './FFmpegInstallGuide';
@@ -308,6 +308,166 @@ const StatCard = styled.div`
   }
 `;
 
+const ModalOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(5px);
+`;
+
+const ModalContent = styled.div`
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 16px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  
+  h3 {
+    color: #ff6b6b;
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+`;
+
+const ModalCloseButton = styled.button`
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  
+  &:hover {
+    background: #333;
+    color: #fff;
+  }
+`;
+
+const ErrorMessage = styled.div`
+  color: #ff6b6b;
+  font-size: 16px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: 8px;
+`;
+
+const ExampleSection = styled.div`
+  margin-top: 20px;
+  
+  h4 {
+    color: #fff;
+    font-size: 16px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+`;
+
+const ExampleList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const ExampleItem = styled.div`
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    border-color: #555;
+    background: #222;
+  }
+  
+  .platform {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #888;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  
+  .url {
+    color: #4a9eff;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    word-break: break-all;
+    cursor: pointer;
+    
+    &:hover {
+      color: #66b3ff;
+      text-decoration: underline;
+    }
+  }
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  justify-content: flex-end;
+`;
+
+const ModalButton = styled.button`
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  
+  &.primary {
+    background: #4a9eff;
+    color: white;
+    
+    &:hover {
+      background: #3a8eef;
+    }
+  }
+  
+  &.secondary {
+    background: #333;
+    color: #ccc;
+    
+    &:hover {
+      background: #444;
+      color: #fff;
+    }
+  }
+`;
+
 function MusicDownloader() {
   const [url, setUrl] = useState('');
   const [outputPath, setOutputPath] = useState('');
@@ -317,6 +477,8 @@ function MusicDownloader() {
   const [autoProcess, setAutoProcess] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
   const [showFFmpegGuide, setShowFFmpegGuide] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorModalMessage, setErrorModalMessage] = useState('');
 
   useEffect(() => {
     // Load settings and downloads from storage
@@ -347,8 +509,52 @@ function MusicDownloader() {
     };
   }, []);
 
+  const validateURL = (url) => {
+    const trimmedUrl = url.trim();
+    
+    // Check if URL is empty
+    if (!trimmedUrl) {
+      return { valid: false, error: "Please enter a URL" };
+    }
+    
+    // Check if it's a valid URL format
+    try {
+      new URL(trimmedUrl);
+    } catch {
+      return { valid: false, error: "Invalid URL format" };
+    }
+    
+    // Check if it's a supported platform
+    const supportedPlatforms = [
+      'youtube.com', 'youtu.be', 'y2u.be', 'm.youtube.com',
+      'soundcloud.com', 'on.soundcloud.com', 'w.soundcloud.com'
+    ];
+    
+    const isSupported = supportedPlatforms.some(platform => 
+      trimmedUrl.toLowerCase().includes(platform)
+    );
+    
+    if (!isSupported) {
+      return { 
+        valid: false, 
+        error: "Unsupported platform. Please use YouTube or SoundCloud URLs" 
+      };
+    }
+    
+    return { valid: true };
+  };
+
   const addDownload = async () => {
     if (!url.trim()) return;
+    
+    // Validate URL before processing
+    const validation = validateURL(url);
+    if (!validation.valid) {
+      // Show error modal to user
+      setErrorModalMessage(validation.error);
+      setShowErrorModal(true);
+      return;
+    }
     
     setIsDownloading(true);
     
@@ -491,6 +697,21 @@ function MusicDownloader() {
     }
     
     setIsDownloading(false);
+  };
+
+  const closeErrorModal = () => {
+    setShowErrorModal(false);
+    setErrorModalMessage('');
+  };
+
+  const copyExampleURL = (url) => {
+    setUrl(url);
+    setShowErrorModal(false);
+    // Focus back to the input after copying
+    setTimeout(() => {
+      const input = document.querySelector('input[type="text"]');
+      if (input) input.focus();
+    }, 100);
   };
 
   const processDownloadedFile = async (download, filePath) => {
@@ -726,17 +947,20 @@ function MusicDownloader() {
           </div>
           
           <div className="settings-grid">
-            <label>
-              <input
-                type="checkbox"
-                checked={autoProcess}
-                onChange={(e) => {
-                  setAutoProcess(e.target.checked);
-                  storage.updateSetting('autoProcess', e.target.checked);
-                }}
-              />
-              Auto-process stems after download
-            </label>
+            <div style={{ 
+              padding: '12px', 
+              background: '#1a3a1a', 
+              border: '1px solid #2a5a2a', 
+              borderRadius: '8px',
+              color: '#88ff88',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <CheckCircle size={16} />
+              Auto-processing enabled by default - stems will be created automatically after download
+            </div>
           </div>
         </OutputSettings>
       </DownloadSection>
@@ -799,6 +1023,111 @@ function MusicDownloader() {
             </QueueItem>
           ))}
         </DownloadQueue>
+      )}
+
+      {/* Error Modal for Invalid URLs */}
+      {showErrorModal && (
+        <ModalOverlay onClick={closeErrorModal}>
+          <ModalContent 
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => {
+              if (e.key === 'Escape') closeErrorModal();
+              if (e.key === 'Enter') {
+                setUrl('');
+                closeErrorModal();
+              }
+            }}
+            tabIndex={0}
+          >
+            <ModalHeader>
+              <h3>
+                <AlertCircle size={20} />
+                Invalid URL
+              </h3>
+              <ModalCloseButton onClick={closeErrorModal}>
+                <X size={20} />
+              </ModalCloseButton>
+            </ModalHeader>
+
+            <ErrorMessage>
+              {errorModalMessage}
+            </ErrorMessage>
+
+            <div style={{ 
+              color: '#ccc', 
+              fontSize: '14px', 
+              marginBottom: '16px',
+              lineHeight: '1.4'
+            }}>
+              AutoDJ supports downloading music from <strong>YouTube</strong> and <strong>SoundCloud</strong>. 
+              Click any example below to use it, or paste your own supported URL.
+            </div>
+
+            <ExampleSection>
+              <h4>
+                <ExternalLink size={16} />
+                Click to Use These Examples:
+              </h4>
+              <ExampleList>
+                <ExampleItem 
+                  onClick={() => copyExampleURL('https://www.youtube.com/watch?v=jNQXAC9IVRw')}
+                  title="Click to use this URL"
+                >
+                  <div className="platform">
+                    <Youtube size={14} />
+                    YouTube - Full URL
+                  </div>
+                  <div className="url">https://www.youtube.com/watch?v=jNQXAC9IVRw</div>
+                </ExampleItem>
+
+                <ExampleItem 
+                  onClick={() => copyExampleURL('https://youtu.be/jNQXAC9IVRw')}
+                  title="Click to use this URL"
+                >
+                  <div className="platform">
+                    <Youtube size={14} />
+                    YouTube - Short URL
+                  </div>
+                  <div className="url">https://youtu.be/jNQXAC9IVRw</div>
+                </ExampleItem>
+
+                <ExampleItem 
+                  onClick={() => copyExampleURL('https://soundcloud.com/user-123456789/cool-track')}
+                  title="Click to use this URL"
+                >
+                  <div className="platform">
+                    <Music size={14} />
+                    SoundCloud
+                  </div>
+                  <div className="url">https://soundcloud.com/user-123456789/cool-track</div>
+                </ExampleItem>
+
+                <ExampleItem 
+                  onClick={() => copyExampleURL('https://m.youtube.com/watch?v=jNQXAC9IVRw')}
+                  title="Click to use this URL"
+                >
+                  <div className="platform">
+                    <Youtube size={14} />
+                    YouTube - Mobile
+                  </div>
+                  <div className="url">https://m.youtube.com/watch?v=jNQXAC9IVRw</div>
+                </ExampleItem>
+              </ExampleList>
+            </ExampleSection>
+
+            <ModalActions>
+              <ModalButton className="secondary" onClick={closeErrorModal}>
+                Close
+              </ModalButton>
+              <ModalButton className="primary" onClick={() => {
+                setUrl('');
+                closeErrorModal();
+              }}>
+                Try Again
+              </ModalButton>
+            </ModalActions>
+          </ModalContent>
+        </ModalOverlay>
       )}
     </DownloaderContainer>
   );

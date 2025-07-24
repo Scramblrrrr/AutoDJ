@@ -1030,6 +1030,9 @@ function AIDJ() {
   });
   const [beatGrid, setBeatGrid] = useState([]);
   const [waveformData, setWaveformData] = useState([]);
+  const [deckBTrack, setDeckBTrack] = useState(null);
+  const [deckBBeatGrid, setDeckBBeatGrid] = useState([]);
+  const [deckBWaveform, setDeckBWaveform] = useState([]);
   const [deckAPlaying, setDeckAPlaying] = useState(false);
   const [deckBPlaying, setDeckBPlaying] = useState(false);
   const [deckAQueue, setDeckAQueue] = useState([]);
@@ -1076,10 +1079,18 @@ function AIDJ() {
         case 'bpmDetected':
           setCurrentTrack(prev => ({
             ...prev,
-            bpm: data.bpm
+            bmp: data.bmp,
+            key: data.key // Key might be included with BPM detection
           }));
           setBeatGrid(data.beatGrid || []);
           setWaveformData(data.waveform || []);
+          break;
+        case 'keyDetected':
+          console.log('🎼 Key detected:', data.key);
+          setCurrentTrack(prev => ({
+            ...prev,
+            key: data.key
+          }));
           break;
         case 'trackEnded':
           // Auto-progress to next track if queue has more tracks
@@ -1091,10 +1102,21 @@ function AIDJ() {
           }
           break;
         case 'stemVolumeChanged':
-          setStemVolumes(prev => ({
-            ...prev,
-            [data.stemName]: data.volume
-          }));
+          // Handle deck-specific stem volume updates from AI DJ
+          if (data.deck) {
+            // Update deck-specific stem volumes
+            setStemVolumes(prev => ({
+              ...prev,
+              [`deck${data.deck}_${data.stemName}`]: data.volume
+            }));
+            console.log(`🎛️ AI DJ updated Deck ${data.deck} ${data.stemName}: ${Math.round(data.volume * 100)}%`);
+          } else {
+            // Legacy single-deck update
+            setStemVolumes(prev => ({
+              ...prev,
+              [data.stemName]: data.volume
+            }));
+          }
           break;
         case 'crossfadeChanged':
           setCrossfadePosition(data.position);
@@ -1164,6 +1186,12 @@ function AIDJ() {
           } else {
             console.log('⚠️ No tracks available in any queue for transition');
           }
+          break;
+        case 'deckBTrackLoaded':
+          console.log('🎵 Deck B track loaded with beatgrid:', data.track.title);
+          setDeckBTrack(data.track);
+          setDeckBBeatGrid(data.beatGrid || []);
+          setDeckBWaveform(data.waveform || []);
           break;
       }
     };
@@ -1630,29 +1658,162 @@ function AIDJ() {
               <span>{currentTrack.durationFormatted || '0:00'}</span>
             </TimeDisplay>
 
-            {/* Professional Waveform & Beat Grid Visualization */}
-            <WaveformContainer>
-              <WaveformCanvas ref={waveformCanvasRef} />
-              <BeatGridOverlay>
-                {beatGrid.map((beat, index) => {
-                  const position = (beat.time / (currentTrack.duration || 180)) * 100;
-                  if (position >= 0 && position <= 100) {
-                    return (
-                      <BeatMarker
-                        key={index}
-                        $type={beat.type}
-                        $confidence={beat.confidence}
-                        $position={position}
-                      />
-                    );
-                  }
-                  return null;
-                })}
-                <PlayheadMarker 
-                  $position={(currentTrack.currentTime / (currentTrack.duration || 180)) * 100} 
-                />
-              </BeatGridOverlay>
-            </WaveformContainer>
+            {/* Professional Dual-Deck Beatgrid Visualization */}
+            <div style={{ marginBottom: '16px' }}>
+              {/* Deck A Beatgrid - Live Track */}
+              <div style={{ marginBottom: '8px' }}>
+                <h4 style={{ color: '#00ff88', fontSize: '12px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🎵 Deck A - {currentTrack.title || 'No Track'}
+                  <span style={{ fontSize: '10px', color: '#666' }}>
+                    ({Math.floor((currentTrack.currentTime || 0) / 60)}:{String(Math.floor((currentTrack.currentTime || 0) % 60)).padStart(2, '0')} / {currentTrack.durationFormatted || '0:00'})
+                  </span>
+                </h4>
+                <WaveformContainer style={{ background: 'linear-gradient(90deg, #001a0d 0%, #002a1a 100%)', height: '80px' }}>
+                  <WaveformCanvas ref={waveformCanvasRef} style={{ height: '80px' }} />
+                  <BeatGridOverlay>
+                    {/* Show 20-second window around current position */}
+                    {beatGrid.filter(beat => {
+                      const currentTime = currentTrack.currentTime || 0;
+                      return beat.time >= currentTime - 10 && beat.time <= currentTime + 10;
+                    }).map((beat, index) => {
+                      const currentTime = currentTrack.currentTime || 0;
+                      const relativeTime = beat.time - (currentTime - 10);
+                      const position = (relativeTime / 20) * 100; // 20-second window
+                      return (
+                        <BeatMarker
+                          key={index}
+                          $type={beat.type}
+                          $confidence={beat.confidence}
+                          $position={Math.max(0, Math.min(100, position))}
+                          style={{ backgroundColor: beat.type === 'downbeat' ? '#00ff88' : '#ffffff' }}
+                        />
+                      );
+                    })}
+                    <PlayheadMarker 
+                      $position={50} // Fixed at center of 20-second window
+                      style={{ backgroundColor: '#00ff88', boxShadow: '0 0 10px #00ff88' }}
+                      title="Current Position - Deck A"
+                    />
+                    <div style={{ 
+                      position: 'absolute', 
+                      bottom: '2px', 
+                      left: '4px', 
+                      fontSize: '10px', 
+                      color: '#00ff88' 
+                    }}>
+                      -10s
+                    </div>
+                    <div style={{ 
+                      position: 'absolute', 
+                      bottom: '2px', 
+                      right: '4px', 
+                      fontSize: '10px', 
+                      color: '#00ff88' 
+                    }}>
+                      +10s
+                    </div>
+                  </BeatGridOverlay>
+                </WaveformContainer>
+              </div>
+
+              {/* Deck B Beatgrid - Next Track */}
+              <div>
+                <h4 style={{ color: '#88ff00', fontSize: '12px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🎵 Deck B - {deckBQueue.length > 0 ? deckBQueue[0].title : 'No Track Loaded'}
+                  <span style={{ fontSize: '10px', color: '#666' }}>
+                    (Ready for transition)
+                  </span>
+                </h4>
+                <WaveformContainer style={{ background: 'linear-gradient(90deg, #1a1a00 0%, #2a2a00 100%)', height: '80px' }}>
+                  <WaveformCanvas style={{ height: '80px', opacity: deckBQueue.length > 0 ? 0.8 : 0.3 }} />
+                  <BeatGridOverlay>
+                    {deckBQueue.length > 0 ? (
+                      <>
+                        {/* Deck B would show its own beatgrid here */}
+                        {deckBTrack ? (
+                          <>
+                            {/* Show actual Deck B beatgrid */}
+                            {deckBBeatGrid.slice(0, 20).map((beat, index) => {
+                              const position = (beat.time / 20) * 100; // First 20 seconds
+                              return (
+                                <BeatMarker
+                                  key={index}
+                                  $type={beat.type}
+                                  $confidence={beat.confidence}
+                                  $position={position}
+                                  style={{ backgroundColor: beat.type === 'downbeat' ? '#88ff00' : '#cccccc' }}
+                                />
+                              );
+                            })}
+                            <div style={{ 
+                              position: 'absolute', 
+                              top: '4px', 
+                              left: '4px', 
+                              color: '#88ff00',
+                              fontSize: '10px',
+                              fontWeight: 'bold'
+                            }}>
+                              {deckBTrack.bmp || 120} BPM • Ready for transition
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ 
+                            position: 'absolute', 
+                            left: '50%', 
+                            top: '50%', 
+                            transform: 'translate(-50%, -50%)',
+                            color: '#88ff00',
+                            fontSize: '11px',
+                            textAlign: 'center'
+                          }}>
+                            Track loaded • {deckBQueue[0].bpm || 120} BPM
+                            <br />
+                            <span style={{ fontSize: '9px', color: '#666' }}>Loading beatgrid...</span>
+                          </div>
+                        )}
+                        <PlayheadMarker 
+                          $position={50}
+                          style={{ backgroundColor: '#88ff00', boxShadow: '0 0 10px #88ff00', opacity: 0.7 }}
+                          title="Ready Position - Deck B"
+                        />
+                      </>
+                    ) : (
+                      <div style={{ 
+                        position: 'absolute', 
+                        left: '50%', 
+                        top: '50%', 
+                        transform: 'translate(-50%, -50%)',
+                        color: '#666',
+                        fontSize: '11px',
+                        textAlign: 'center'
+                      }}>
+                        Drag track from Main Queue to Deck B
+                        <br />
+                        <span style={{ fontSize: '9px' }}>or wait for AI to load next track</span>
+                      </div>
+                    )}
+                    <div style={{ 
+                      position: 'absolute', 
+                      bottom: '2px', 
+                      left: '4px', 
+                      fontSize: '10px', 
+                      color: '#88ff00' 
+                    }}>
+                      -10s
+                    </div>
+                    <div style={{ 
+                      position: 'absolute', 
+                      bottom: '2px', 
+                      right: '4px', 
+                      fontSize: '10px', 
+                      color: '#88ff00' 
+                    }}>
+                      +10s
+                    </div>
+                  </BeatGridOverlay>
+                </WaveformContainer>
+              </div>
+            </div>
 
             {/* Frequency Spectrum Display */}
             <FrequencyBands>
@@ -1674,29 +1835,44 @@ function AIDJ() {
                 🎵 Deck A Stems {autoMixEnabled && '🔒'}
               </h4>
               <StemGrid style={{ opacity: autoMixEnabled ? 0.6 : 1 }}>
-                {stems.map(stem => (
-                  <StemCard key={`deckA_${stem.key}`} $volume={stem.volume * 100}>
-                    <h4>
-                      {stem.name}
-                    </h4>
-                    <div 
-                      className="volume-slider"
-                      onClick={autoMixEnabled ? undefined : (e) => {
-                        const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const volume = x / rect.width;
-                        handleStemVolumeChange(`deckA_${stem.key}`, Math.max(0, Math.min(1, volume)));
-                      }}
-                      style={{ 
-                        cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
-                        pointerEvents: autoMixEnabled ? 'none' : 'auto'
-                      }}
-                    >
-                      <div className="slider-fill" />
-                    </div>
-                    <div className="volume-label">{Math.round(stem.volume * 100)}%</div>
-                  </StemCard>
-                ))}
+                {stems.map(stem => {
+                  // Get real-time volume from AI DJ or manual control
+                  const realTimeVolume = stemVolumes[`deckA_${stem.key}`] || stem.volume;
+                  return (
+                    <StemCard key={`deckA_${stem.key}`} $volume={realTimeVolume * 100}>
+                      <h4>
+                        {stem.name}
+                        {autoMixEnabled && (
+                          <span style={{ fontSize: '10px', color: '#666', marginLeft: '4px' }}>
+                            (AI: {Math.round(realTimeVolume * 100)}%)
+                          </span>
+                        )}
+                      </h4>
+                      <div 
+                        className="volume-slider"
+                        onClick={autoMixEnabled ? undefined : (e) => {
+                          const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
+                          const x = e.clientX - rect.left;
+                          const volume = x / rect.width;
+                          handleStemVolumeChange(`deckA_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                        }}
+                        style={{ 
+                          cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
+                          pointerEvents: autoMixEnabled ? 'none' : 'auto'
+                        }}
+                      >
+                        <div 
+                          className="slider-fill" 
+                          style={{ width: `${realTimeVolume * 100}%` }}
+                        />
+                      </div>
+                      <div className="volume-label">
+                        {Math.round(realTimeVolume * 100)}%
+                        {autoMixEnabled && ' 🎛️'}
+                      </div>
+                    </StemCard>
+                  );
+                })}
               </StemGrid>
             </div>
 
@@ -1705,46 +1881,134 @@ function AIDJ() {
               <h4 style={{ color: '#88ff00', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 🎵 Deck B Stems {autoMixEnabled && '🔒'}
               </h4>
-              <StemGrid style={{ opacity: autoMixEnabled ? 0.6 : 1 }}>
-                {stems.map(stem => (
-                  <StemCard key={`deckB_${stem.key}`} $volume={stem.volume * 100}>
-                    <h4>
-                      {stem.name}
-                    </h4>
-                    <div 
-                      className="volume-slider"
-                      onClick={autoMixEnabled ? undefined : (e) => {
-                        const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const volume = x / rect.width;
-                        handleStemVolumeChange(`deckB_${stem.key}`, Math.max(0, Math.min(1, volume)));
-                      }}
-                      style={{ 
-                        cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
-                        pointerEvents: autoMixEnabled ? 'none' : 'auto'
-                      }}
-                    >
-                      <div className="slider-fill" />
-                    </div>
-                    <div className="volume-label">{Math.round(stem.volume * 100)}%</div>
-                  </StemCard>
-                ))}
-              </StemGrid>
+                             <StemGrid style={{ opacity: autoMixEnabled ? 0.6 : 1 }}>
+                 {stems.map(stem => {
+                   // Get real-time volume from AI DJ or manual control
+                   const realTimeVolume = stemVolumes[`deckB_${stem.key}`] || stem.volume;
+                   return (
+                     <StemCard key={`deckB_${stem.key}`} $volume={realTimeVolume * 100}>
+                       <h4>
+                         {stem.name}
+                         {autoMixEnabled && (
+                           <span style={{ fontSize: '10px', color: '#666', marginLeft: '4px' }}>
+                             (AI: {Math.round(realTimeVolume * 100)}%)
+                           </span>
+                         )}
+                       </h4>
+                       <div 
+                         className="volume-slider"
+                         onClick={autoMixEnabled ? undefined : (e) => {
+                           const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
+                           const x = e.clientX - rect.left;
+                           const volume = x / rect.width;
+                           handleStemVolumeChange(`deckB_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                         }}
+                         style={{ 
+                           cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
+                           pointerEvents: autoMixEnabled ? 'none' : 'auto'
+                         }}
+                       >
+                         <div 
+                           className="slider-fill" 
+                           style={{ width: `${realTimeVolume * 100}%` }}
+                         />
+                       </div>
+                       <div className="volume-label">
+                         {Math.round(realTimeVolume * 100)}%
+                         {autoMixEnabled && ' 🎛️'}
+                       </div>
+                     </StemCard>
+                   );
+                 })}
+               </StemGrid>
             </div>
           </StemVisualizer>
 
           <DJMixer>
             <BPMSection $synced={bpmSynced}>
               <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                <div className="bpm-display">
-                  <div className="bpm-value" style={{ color: '#00ff88' }}>{currentTrack.bpm}</div>
-                  <div className="bpm-label">Deck A BPM</div>
+                <div className="deck-info">
+                  <div className="bmp-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
+                    {currentTrack.bmp || 120}
+                  </div>
+                  <div className="bmp-label">Deck A BPM</div>
+                  <div className="key-display" style={{ 
+                    marginTop: '4px', 
+                    fontSize: '12px', 
+                    color: '#00ff88',
+                    fontFamily: 'monospace'
+                  }}>
+                    {currentTrack.key ? (
+                      <span title={`Musical Key: ${currentTrack.key.name} (${currentTrack.key.camelot} on Camelot Wheel)`}>
+                        🎼 {currentTrack.key.name} ({currentTrack.key.camelot})
+                      </span>
+                    ) : (
+                      <span style={{ color: '#666' }}>🎼 Analyzing key...</span>
+                    )}
+                  </div>
                 </div>
-                <div className="bpm-display">
-                  <div className="bmp-value" style={{ color: '#88ff00' }}>{deckBQueue.length > 0 ? deckBQueue[0].bpm || 120 : 120}</div>
-                  <div className="bpm-label">Deck B BPM</div>
+                <div className="deck-info">
+                  <div className="bmp-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
+                    {deckBTrack?.bmp || (deckBQueue.length > 0 ? deckBQueue[0].bmp || 120 : 120)}
+                  </div>
+                  <div className="bmp-label">Deck B BPM</div>
+                  <div className="key-display" style={{ 
+                    marginTop: '4px', 
+                    fontSize: '12px', 
+                    color: '#88ff00',
+                    fontFamily: 'monospace'
+                  }}>
+                    {deckBTrack?.key ? (
+                      <span title={`Musical Key: ${deckBTrack.key.name} (${deckBTrack.key.camelot} on Camelot Wheel)`}>
+                        🎼 {deckBTrack.key.name} ({deckBTrack.key.camelot})
+                      </span>
+                    ) : deckBQueue.length > 0 ? (
+                      <span style={{ color: '#666' }}>🎼 Loading key...</span>
+                    ) : (
+                      <span style={{ color: '#333' }}>🎼 No track loaded</span>
+                    )}
+                  </div>
                 </div>
               </div>
+              {/* Harmonic Compatibility Indicator */}
+              {currentTrack.key && deckBTrack?.key && (
+                <div style={{
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  textAlign: 'center',
+                  marginBottom: '8px',
+                  backgroundColor: (() => {
+                    // Calculate compatibility using audioEngine logic (simplified)
+                    const areCompatible = currentTrack.key.camelot === deckBTrack.key.camelot ||
+                      Math.abs(parseInt(currentTrack.key.camelot) - parseInt(deckBTrack.key.camelot)) <= 1;
+                    return areCompatible ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 107, 107, 0.2)';
+                  })(),
+                  color: (() => {
+                    const areCompatible = currentTrack.key.camelot === deckBTrack.key.camelot ||
+                      Math.abs(parseInt(currentTrack.key.camelot) - parseInt(deckBTrack.key.camelot)) <= 1;
+                    return areCompatible ? '#00ff88' : '#ff6b6b';
+                  })(),
+                  border: (() => {
+                    const areCompatible = currentTrack.key.camelot === deckBTrack.key.camelot ||
+                      Math.abs(parseInt(currentTrack.key.camelot) - parseInt(deckBTrack.key.camelot)) <= 1;
+                    return areCompatible ? '1px solid rgba(0, 255, 136, 0.3)' : '1px solid rgba(255, 107, 107, 0.3)';
+                  })()
+                }}>
+                  🎼 {(() => {
+                    if (currentTrack.key.camelot === deckBTrack.key.camelot) {
+                      return "PERFECT KEY MATCH ✨";
+                    }
+                    const numDiff = Math.abs(parseInt(currentTrack.key.camelot) - parseInt(deckBTrack.key.camelot));
+                    if (numDiff <= 1) {
+                      return "HARMONIC COMPATIBLE 🎵";
+                    }
+                    return "KEY CLASH RISK ⚠️";
+                  })()}
+                </div>
+              )}
+
               <AutoMixIndicator $active={autoMixEnabled}>
                 <div className="indicator-dot"></div>
                 AI Auto-Mix {autoMixEnabled ? 'ON' : 'OFF'}

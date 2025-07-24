@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import styled from 'styled-components';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, CheckCircle, Clock, AlertCircle, Play, Trash2, FolderOpen } from 'lucide-react';
+import { Upload, File, CheckCircle, Clock, AlertCircle, Play, Trash2, FolderOpen, Pause, Settings, Zap, Square, CheckSquare } from 'lucide-react';
 import storage from '../utils/storage';
 import fileManager from '../utils/fileManager';
 
@@ -110,16 +110,32 @@ const FileList = styled.div`
 const FileItem = styled.div`
   display: flex;
   align-items: center;
-  padding: 16px 0;
-  border-bottom: 1px solid #333;
+  padding: 16px;
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
   
-  &:last-child {
-    border-bottom: none;
+  &.selected {
+    border-color: #4a9eff;
+    background: rgba(74, 158, 255, 0.1);
+  }
+  
+  .file-checkbox {
+    margin-right: 12px;
+    
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
   }
   
   .file-icon {
     margin-right: 16px;
     color: #666;
+    flex-shrink: 0;
   }
   
   .file-details {
@@ -135,6 +151,7 @@ const FileItem = styled.div`
     p {
       font-size: 12px;
       color: #888;
+      margin: 0;
     }
   }
   
@@ -142,20 +159,36 @@ const FileItem = styled.div`
     display: flex;
     align-items: center;
     margin-right: 16px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
     
     .status-icon {
       margin-right: 8px;
+      flex-shrink: 0;
     }
     
-    .status-text {
-      font-size: 12px;
-      font-weight: 500;
+    &.pending {
+      background: rgba(255, 193, 7, 0.2);
+      color: #ffc107;
     }
     
-    &.pending .status-text { color: #888; }
-    &.processing .status-text { color: #ffa500; }
-    &.completed .status-text { color: #4caf50; }
-    &.error .status-text { color: #f44336; }
+    &.processing {
+      background: rgba(0, 123, 255, 0.2);
+      color: #007bff;
+    }
+    
+    &.completed {
+      background: rgba(40, 167, 69, 0.2);
+      color: #28a745;
+    }
+    
+    &.error {
+      background: rgba(220, 53, 69, 0.2);
+      color: #dc3545;
+    }
   }
   
   .file-actions {
@@ -164,17 +197,22 @@ const FileItem = styled.div`
   }
   
   .action-btn {
-    background: #3a3a3a;
-    border: 1px solid #555;
+    background: #333;
+    border: 1px solid #444;
     border-radius: 6px;
     padding: 6px;
-    color: #888;
+    color: #ccc;
     cursor: pointer;
     transition: all 0.2s ease;
     
     &:hover {
-      background: #4a4a4a;
-      color: #aaa;
+      background: #3a3a3a;
+      color: #fff;
+    }
+    
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   }
 `;
@@ -224,10 +262,204 @@ const StatCard = styled.div`
   }
 `;
 
+const BulkControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  
+  .select-all {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #ccc;
+    
+    &:hover {
+      color: #fff;
+    }
+  }
+  
+  .selection-count {
+    color: #888;
+    font-size: 13px;
+  }
+  
+  .bulk-actions {
+    display: flex;
+    gap: 12px;
+    margin-left: auto;
+  }
+`;
+
+const ParallelSettings = styled.div`
+  position: relative;
+  
+  .settings-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #333;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 13px;
+    
+    &:hover {
+      background: #3a3a3a;
+      color: #fff;
+    }
+  }
+  
+  .settings-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 12px;
+    padding: 20px;
+    width: 280px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    
+    h4 {
+      margin: 0 0 12px 0;
+      color: #fff;
+      font-size: 14px;
+    }
+    
+    .setting-item {
+      margin-bottom: 16px;
+      
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: #ccc;
+        font-size: 13px;
+      }
+      
+      input[type="range"] {
+        width: 100%;
+        margin-bottom: 4px;
+      }
+      
+      .setting-value {
+        color: #888;
+        font-size: 12px;
+      }
+    }
+    
+    .setting-description {
+      color: #666;
+      font-size: 11px;
+      line-height: 1.4;
+      margin-top: 4px;
+    }
+  }
+`;
+
+const ProcessingStatus = styled.div`
+  background: #1a3a1a;
+  border: 1px solid #2a5a2a;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  
+  .status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    
+    h4 {
+      margin: 0;
+      color: #88ff88;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .pause-button {
+      background: #333;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 12px;
+      
+      &:hover {
+        background: #3a3a3a;
+      }
+    }
+  }
+  
+  .parallel-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: #88ff88;
+    
+    .progress-text {
+      flex: 1;
+    }
+    
+    .concurrent-indicator {
+      display: flex;
+      gap: 4px;
+      
+      .job-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #88ff88;
+        animation: pulse 1.5s infinite;
+      }
+      
+      .job-dot.waiting {
+        background: #666;
+        animation: none;
+      }
+    }
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+`;
+
+
+
 function UploadProcess() {
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMessages, setProgressMessages] = useState({});
+  
+  // Bulk selection states
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  
+  // Parallel processing settings
+  const [maxConcurrentJobs, setMaxConcurrentJobs] = useState(3); // Default: 3 concurrent jobs
+  const [activeJobs, setActiveJobs] = useState(new Set());
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // Processing queue management
+  const [processingQueue, setProcessingQueue] = useState([]);
+  const [completedJobs, setCompletedJobs] = useState(0);
+  const [totalJobs, setTotalJobs] = useState(0);
 
   useEffect(() => {
     // Load existing tracks from storage
@@ -326,8 +558,32 @@ function UploadProcess() {
     multiple: true
   });
 
+  // Bulk selection functions
+  const toggleFileSelection = (id) => {
+    setSelectedFiles(prev => {
+      const isSelected = prev.includes(id);
+      if (isSelected) {
+        return prev.filter(fileId => fileId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const selectableFiles = files.filter(f => f.status === 'pending').map(f => f.id);
+    if (selectAll) {
+      setSelectedFiles([]);
+      setSelectAll(false);
+    } else {
+      setSelectedFiles(selectableFiles);
+      setSelectAll(true);
+    }
+  };
+
   const removeFile = (id) => {
     setFiles(files.filter(file => file.id !== id));
+    setSelectedFiles(prev => prev.filter(fileId => fileId !== id));
     storage.removeTrack(id);
 
     // Also remove from file system if exists
@@ -337,87 +593,69 @@ function UploadProcess() {
     }
   };
 
-  const processAllFiles = async () => {
-    setIsProcessing(true);
+  const removeSelectedFiles = () => {
+    selectedFiles.forEach(id => removeFile(id));
+    setSelectedFiles([]);
+    setSelectAll(false);
+  };
+
+  // Process a single file (for parallel execution)
+  const processSingleFile = async (file) => {
+    const jobId = `job_${file.id}_${Date.now()}`;
     
-    const pendingFiles = files.filter(f => f.status === 'pending');
-    
-    for (let i = 0; i < pendingFiles.length; i++) {
-      const file = pendingFiles[i];
+    try {
+      // Add to active jobs
+      setActiveJobs(prev => new Set([...prev, jobId]));
       
-      try {
-        // Update status to processing
+      // Update status to processing
+      setFiles(prev => prev.map(f => 
+        f.id === file.id 
+          ? { ...f, status: 'processing', progress: 0, jobId }
+          : f
+      ));
+      
+      storage.updateTrack(file.id, { status: 'processing', progress: 0 });
+
+      // Process stems using file manager
+      const result = await fileManager.processStems(
+        file.filePath, 
+        fileManager.getDefaultPath('stems')
+      );
+
+      if (result.success) {
+        // Update with completed status
+        const updatedFile = {
+          status: 'completed',
+          progress: 100,
+          stemsPath: result.stems,
+          processedAt: Date.now(),
+          jobId: null
+        };
+
         setFiles(prev => prev.map(f => 
           f.id === file.id 
-            ? { ...f, status: 'processing', progress: 0 }
+            ? { ...f, ...updatedFile }
             : f
         ));
-        
-        storage.updateTrack(file.id, { status: 'processing', progress: 0 });
 
-        // Process stems using file manager
-        const result = await fileManager.processStems(
-          file.filePath, 
-          fileManager.getDefaultPath('stems')
-        );
+        storage.updateTrack(file.id, updatedFile);
 
-        if (result.success) {
-          // Update with completed status
-          const updatedFile = {
-            status: 'completed',
-            progress: 100,
-            stemsPath: result.stems,
-            processedAt: Date.now()
-          };
+        // Add to processing history
+        storage.addProcessingRecord({
+          type: 'processing',
+          title: `✅ Processed ${file.name}`,
+          status: 'completed',
+          filePath: file.filePath,
+          stemsPath: result.stems
+        });
 
-          setFiles(prev => prev.map(f => 
-            f.id === file.id 
-              ? { ...f, ...updatedFile }
-              : f
-          ));
-
-          storage.updateTrack(file.id, updatedFile);
-
-          // Add to processing history
-          storage.addProcessingRecord({
-            type: 'processing',
-            title: `Processed ${file.name}`,
-            status: 'completed',
-            filePath: file.filePath,
-            stemsPath: result.stems
-          });
-
-        } else {
-          // Handle error
-          const errorUpdate = {
-            status: 'error',
-            progress: 0,
-            error: result.error
-          };
-
-          setFiles(prev => prev.map(f => 
-            f.id === file.id 
-              ? { ...f, ...errorUpdate }
-              : f
-          ));
-
-          storage.updateTrack(file.id, errorUpdate);
-
-          storage.addProcessingRecord({
-            type: 'processing',
-            title: `Failed to process ${file.name}`,
-            status: 'failed',
-            error: result.error
-          });
-        }
-
-      } catch (error) {
-        console.error('Processing error:', error);
-        
+      } else {
+        // Handle error
         const errorUpdate = {
           status: 'error',
           progress: 0,
-          error: error.message
+          error: result.error,
+          jobId: null
         };
 
         setFiles(prev => prev.map(f => 
@@ -427,10 +665,130 @@ function UploadProcess() {
         ));
 
         storage.updateTrack(file.id, errorUpdate);
+
+        storage.addProcessingRecord({
+          type: 'processing',
+          title: `❌ Failed to process ${file.name}`,
+          status: 'failed',
+          error: result.error
+        });
       }
+
+    } catch (error) {
+      console.error('Processing error:', error);
+      
+      const errorUpdate = {
+        status: 'error',
+        progress: 0,
+        error: error.message,
+        jobId: null
+      };
+
+      setFiles(prev => prev.map(f => 
+        f.id === file.id 
+          ? { ...f, ...errorUpdate }
+          : f
+      ));
+
+      storage.updateTrack(file.id, errorUpdate);
+    } finally {
+      // Remove from active jobs
+      setActiveJobs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(jobId);
+        return newSet;
+      });
+      
+      // Update completed count
+      setCompletedJobs(prev => prev + 1);
+    }
+  };
+
+  // Parallel processing with controlled concurrency
+  const processFilesInParallel = async (filesToProcess) => {
+    setIsProcessing(true);
+    setCompletedJobs(0);
+    setTotalJobs(filesToProcess.length);
+    setProcessingQueue(filesToProcess);
+    
+    console.log(`🚀 Starting parallel processing of ${filesToProcess.length} files with max ${maxConcurrentJobs} concurrent jobs`);
+    
+    const processingPromises = [];
+    let processedCount = 0;
+    
+    // Create a semaphore to limit concurrent jobs
+    const semaphore = {
+      count: maxConcurrentJobs,
+      waitingQueue: [],
+      
+      async acquire() {
+        return new Promise(resolve => {
+          if (this.count > 0) {
+            this.count--;
+            resolve();
+          } else {
+            this.waitingQueue.push(resolve);
+          }
+        });
+      },
+      
+      release() {
+        this.count++;
+        if (this.waitingQueue.length > 0) {
+          const resolve = this.waitingQueue.shift();
+          this.count--;
+          resolve();
+        }
+      }
+    };
+    
+    // Process files with controlled concurrency
+    for (const file of filesToProcess) {
+      const processFileWithSemaphore = async () => {
+        await semaphore.acquire();
+        try {
+          await processSingleFile(file);
+          processedCount++;
+          console.log(`✅ Completed ${processedCount}/${filesToProcess.length}: ${file.name}`);
+        } finally {
+          semaphore.release();
+        }
+      };
+      
+      processingPromises.push(processFileWithSemaphore());
     }
     
+    // Wait for all files to complete
+    await Promise.all(processingPromises);
+    
     setIsProcessing(false);
+    setActiveJobs(new Set());
+    setProcessingQueue([]);
+    
+    console.log(`🎉 Parallel processing complete! Processed ${filesToProcess.length} files.`);
+  };
+
+  // Process all pending files
+  const processAllFiles = async () => {
+    const pendingFiles = files.filter(f => f.status === 'pending');
+    if (pendingFiles.length === 0) return;
+    
+    await processFilesInParallel(pendingFiles);
+  };
+
+  // Process only selected files
+  const processSelectedFiles = async () => {
+    const filesToProcess = files.filter(f => 
+      selectedFiles.includes(f.id) && f.status === 'pending'
+    );
+    
+    if (filesToProcess.length === 0) return;
+    
+    await processFilesInParallel(filesToProcess);
+    
+    // Clear selection after processing
+    setSelectedFiles([]);
+    setSelectAll(false);
   };
 
   const handleBrowseClick = async () => {
@@ -534,24 +892,140 @@ function UploadProcess() {
                 className="btn-primary" 
                 onClick={processAllFiles}
                 disabled={isProcessing || pendingFiles === 0}
+                title={`Process all ${pendingFiles} pending files in parallel (max ${maxConcurrentJobs} concurrent)`}
               >
-                <Upload size={16} style={{ marginRight: '8px' }} />
-                {isProcessing ? 'Processing...' : `Process ${pendingFiles} Files`}
+                <Zap size={16} style={{ marginRight: '8px' }} />
+                {isProcessing ? `Processing ${activeJobs.size}/${totalJobs}...` : `⚡ Process All (${pendingFiles})`}
               </button>
+              {selectedFiles.length > 0 && (
+                <button 
+                  className="btn-secondary" 
+                  onClick={processSelectedFiles}
+                  disabled={isProcessing}
+                  title={`Process ${selectedFiles.length} selected files in parallel`}
+                >
+                  <Play size={16} style={{ marginRight: '8px' }} />
+                  Process Selected ({selectedFiles.length})
+                </button>
+              )}
               <button 
                 className="btn-secondary"
-                onClick={() => setFiles([])}
+                onClick={() => {
+                  setFiles([]);
+                  setSelectedFiles([]);
+                  setSelectAll(false);
+                }}
                 disabled={isProcessing}
               >
                 Clear All
               </button>
+              <ParallelSettings>
+                <div 
+                  className="settings-button"
+                  onClick={() => setShowSettings(!showSettings)}
+                  title="Configure parallel processing settings"
+                >
+                  <Settings size={14} />
+                  Parallel Settings
+                </div>
+                {showSettings && (
+                  <div className="settings-panel">
+                    <h4>⚡ Parallel Processing</h4>
+                    <div className="setting-item">
+                      <label>Concurrent Jobs: {maxConcurrentJobs}</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="8"
+                        value={maxConcurrentJobs}
+                        onChange={(e) => setMaxConcurrentJobs(parseInt(e.target.value))}
+                      />
+                      <div className="setting-value">
+                        {maxConcurrentJobs} job{maxConcurrentJobs !== 1 ? 's' : ''} at once
+                      </div>
+                      <div className="setting-description">
+                        Higher values = faster processing but more system resource usage.
+                        Recommended: 2-4 for most systems.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </ParallelSettings>
               <span className="file-count">
                 {files.length} file{files.length !== 1 ? 's' : ''} uploaded
+                {selectedFiles.length > 0 && ` • ${selectedFiles.length} selected`}
               </span>
             </>
           )}
         </ActionButtons>
       </UploadSection>
+
+      {/* Bulk Controls */}
+      {files.length > 0 && (
+        <BulkControls>
+          <div 
+            className="select-all" 
+            onClick={toggleSelectAll}
+            title="Select or deselect all pending files"
+          >
+            {selectAll ? <CheckSquare size={16} /> : <Square size={16} />}
+            Select All Pending
+          </div>
+          <div className="selection-count">
+            {selectedFiles.length > 0 ? `${selectedFiles.length} selected` : `${files.filter(f => f.status === 'pending').length} files available`}
+          </div>
+          <div className="bulk-actions">
+            {selectedFiles.length > 0 && (
+              <button 
+                className="btn-secondary"
+                onClick={removeSelectedFiles}
+                disabled={isProcessing}
+                title="Remove selected files"
+              >
+                <Trash2 size={14} style={{ marginRight: '6px' }} />
+                Remove Selected
+              </button>
+            )}
+          </div>
+        </BulkControls>
+      )}
+
+      {/* Parallel Processing Status */}
+      {isProcessing && (
+        <ProcessingStatus>
+          <div className="status-header">
+            <h4>
+              <Zap size={16} />
+              Parallel Processing Active
+            </h4>
+            <button 
+              className="pause-button"
+              onClick={() => {
+                // Note: This would require implementing pause/resume functionality
+                console.log('Pause/Resume would be implemented here');
+              }}
+              title="Pause/Resume processing (coming soon)"
+            >
+              <Pause size={12} />
+              Pause
+            </button>
+          </div>
+          <div className="parallel-progress">
+            <div className="progress-text">
+              {completedJobs}/{totalJobs} completed • {activeJobs.size} running • {totalJobs - completedJobs - activeJobs.size} queued
+            </div>
+            <div className="concurrent-indicator">
+              {Array.from({length: maxConcurrentJobs}, (_, i) => (
+                <div 
+                  key={i} 
+                  className={`job-dot ${i < activeJobs.size ? '' : 'waiting'}`}
+                  title={i < activeJobs.size ? 'Active job' : 'Waiting slot'}
+                />
+              ))}
+            </div>
+          </div>
+        </ProcessingStatus>
+      )}
 
       {files.length > 0 && (
         <ProcessingStats>
@@ -581,11 +1055,33 @@ function UploadProcess() {
             File Processing Queue
           </h3>
           {files.map(file => (
-            <FileItem key={file.id}>
+            <FileItem 
+              key={file.id}
+              className={selectedFiles.includes(file.id) ? 'selected' : ''}
+            >
+              {/* Bulk selection checkbox */}
+              {file.status === 'pending' && (
+                <div className="file-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(file.id)}
+                    onChange={() => toggleFileSelection(file.id)}
+                    title="Select for bulk processing"
+                  />
+                </div>
+              )}
+              
               <File size={20} className="file-icon" />
               <div className="file-details">
                 <h4>{file.name}</h4>
-                <p>{file.size}</p>
+                <p>
+                  {file.size}
+                  {file.jobId && (
+                    <span style={{ color: '#007bff', marginLeft: '8px' }}>
+                      • Job {file.jobId.split('_')[2]}
+                    </span>
+                  )}
+                </p>
                 {(file.status === 'processing' || file.status === 'completed') && (
                   <ProgressBar $progress={file.progress}>
                     <div className="progress-fill" />
@@ -595,17 +1091,17 @@ function UploadProcess() {
               <div className={`file-status ${file.status}`}>
                 {getStatusIcon(file.status)}
                 <span className="status-text">
-                  {file.status === 'pending' && 'Waiting'}
+                  {file.status === 'pending' && 'Queued'}
                   {file.status === 'processing' && `${file.progress}%`}
-                  {file.status === 'completed' && 'Ready'}
-                  {file.status === 'error' && 'Failed'}
+                  {file.status === 'completed' && '✅ Ready'}
+                  {file.status === 'error' && '❌ Failed'}
                 </span>
               </div>
               <div className="file-actions">
                 {file.status === 'completed' && (
                   <button 
                     className="action-btn" 
-                    title="Open File Location"
+                    title="Open stems folder"
                     onClick={() => handlePreviewFile(file)}
                   >
                     <FolderOpen size={14} />
@@ -614,7 +1110,7 @@ function UploadProcess() {
                 <button 
                   className="action-btn" 
                   onClick={() => removeFile(file.id)}
-                  title="Remove"
+                  title="Remove file"
                   disabled={file.status === 'processing'}
                 >
                   <Trash2 size={14} />

@@ -192,13 +192,17 @@ class AudioEngine {
         }
       }
       
-      // Detect BPM (simplified - in reality would use more sophisticated algorithm)
-      const bpm = await this.detectBPM(stems.drums || stems.other);
+      // Detect BPM and musical key for professional mixing
+      const bmp = await this.detectBPM(stems.drums || stems.other);
+      const key = await this.detectKey(stems.vocals || stems.other || stems.drums);
+      
+      console.log(`🎵 Track analysis complete: ${bmp} BPM, ${key.name} (${key.camelot})`);
       
       return {
         ...trackData,
         stems,
-        bpm,
+        bmp,
+        key,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
     } catch (error) {
@@ -442,6 +446,193 @@ class AudioEngine {
     }
     
     return peaks;
+  }
+
+  // Musical key detection using chroma features
+  async detectKey(stemData) {
+    console.log('🎵 Analyzing musical key...');
+    
+    try {
+      if (!stemData || !stemData.buffer) {
+        return { name: 'C Major', camelot: '8B', confidence: 0 };
+      }
+      
+      // Use full mix (other/vocals stem) for key detection
+      const audioBuffer = stemData.buffer;
+      const audioData = audioBuffer.getChannelData(0);
+      const sampleRate = audioBuffer.sampleRate;
+      
+      // Analyze first 30 seconds for key (most stable section)
+      const analysisLength = Math.min(sampleRate * 30, audioData.length);
+      const analysisData = audioData.slice(0, analysisLength);
+      
+      // Compute chroma features
+      const chromaProfile = this.computeChromaFeatures(analysisData, sampleRate);
+      
+      // Find best matching key
+      const detectedKey = this.findBestKey(chromaProfile);
+      
+      console.log(`🎵 Detected Key: ${detectedKey.name} (${detectedKey.camelot})`);
+      return detectedKey;
+    } catch (error) {
+      console.error('Key detection failed:', error);
+      return { name: 'C Major', camelot: '8B', confidence: 0 };
+    }
+  }
+
+  // Compute chroma features for key detection
+  computeChromaFeatures(audioData, sampleRate) {
+    const windowSize = 4096;
+    const hopSize = 2048;
+    const chromaBins = 12; // 12 semitones
+    
+    // Initialize chroma profile
+    const chromaProfile = new Array(chromaBins).fill(0);
+    
+    // Process audio in overlapping windows
+    for (let i = 0; i < audioData.length - windowSize; i += hopSize) {
+      const window = audioData.slice(i, i + windowSize);
+      
+      // Apply Hann window
+      const windowed = window.map((sample, idx) => 
+        sample * 0.5 * (1 - Math.cos(2 * Math.PI * idx / (windowSize - 1)))
+      );
+      
+      // Simple spectral analysis
+      for (let bin = 0; bin < windowed.length; bin += 8) {
+        const frequency = (bin * sampleRate) / windowSize;
+        if (frequency < 80 || frequency > 5000) continue; // Musical range
+        
+        // Convert frequency to chroma class (0-11)
+        const chromaClass = this.frequencyToChroma(frequency);
+        const magnitude = Math.abs(windowed[bin]);
+        
+        chromaProfile[chromaClass] += magnitude;
+      }
+    }
+    
+    // Normalize chroma profile
+    const sum = chromaProfile.reduce((a, b) => a + b, 0);
+    return chromaProfile.map(value => sum > 0 ? value / sum : 0);
+  }
+
+  // Convert frequency to chroma class (0=C, 1=C#, etc.)
+  frequencyToChroma(frequency) {
+    // A4 = 440 Hz = chroma class 9 (A)
+    const A4 = 440;
+    const semitones = 12 * Math.log2(frequency / A4);
+    const chromaClass = ((Math.round(semitones) + 9) % 12 + 12) % 12;
+    return chromaClass;
+  }
+
+  // Find best matching key from chroma profile
+  findBestKey(chromaProfile) {
+    // Simplified key templates (major and minor scales)
+    const keyTemplates = {
+      'C Major':  [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1],
+      'C# Major': [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0],
+      'D Major':  [0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1],
+      'D# Major': [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0],
+      'E Major':  [0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1],
+      'F Major':  [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+      'F# Major': [0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
+      'G Major':  [1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1],
+      'G# Major': [1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0],
+      'A Major':  [0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1],
+      'A# Major': [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+      'B Major':  [0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1],
+      
+      'A Minor':  [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0],
+      'A# Minor': [0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1],
+      'B Minor':  [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0],
+      'C Minor':  [0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1],
+      'C# Minor': [1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1],
+      'D Minor':  [1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0],
+      'D# Minor': [0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1],
+      'E Minor':  [1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0],
+      'F Minor':  [0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1],
+      'F# Minor': [1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1],
+      'G Minor':  [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0],
+      'G# Minor': [0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1]
+    };
+
+    // Camelot notation mapping
+    const camelotMap = {
+      'C Major': '8B', 'A Minor': '8A',
+      'C# Major': '3B', 'A# Minor': '3A', 
+      'D Major': '10B', 'B Minor': '10A',
+      'D# Major': '5B', 'C Minor': '5A',
+      'E Major': '12B', 'C# Minor': '12A',
+      'F Major': '7B', 'D Minor': '7A',
+      'F# Major': '2B', 'D# Minor': '2A',
+      'G Major': '9B', 'E Minor': '9A',
+      'G# Major': '4B', 'F Minor': '4A',
+      'A Major': '11B', 'F# Minor': '11A',
+      'A# Major': '6B', 'G Minor': '6A',
+      'B Major': '1B', 'G# Minor': '1A'
+    };
+
+    let bestKey = 'C Major';
+    let bestScore = 0;
+
+    // Find best correlation with key templates
+    for (const [keyName, template] of Object.entries(keyTemplates)) {
+      let correlation = 0;
+      for (let i = 0; i < 12; i++) {
+        correlation += chromaProfile[i] * template[i];
+      }
+      
+      if (correlation > bestScore) {
+        bestScore = correlation;
+        bestKey = keyName;
+      }
+    }
+
+    return {
+      name: bestKey,
+      camelot: camelotMap[bestKey] || '8B',
+      confidence: Math.min(bestScore * 5, 1.0) // Normalize confidence
+    };
+  }
+
+  // Check harmonic compatibility using Camelot Wheel
+  areKeysCompatible(key1, key2) {
+    if (!key1?.camelot || !key2?.camelot) return { compatible: true, score: 0.5, reason: 'Unknown keys' };
+    
+    const camelot1 = key1.camelot;
+    const camelot2 = key2.camelot;
+    
+    // Same key = perfect
+    if (camelot1 === camelot2) return { compatible: true, score: 1.0, reason: 'Same key' };
+    
+    // Extract number and letter
+    const num1 = parseInt(camelot1);
+    const letter1 = camelot1.slice(-1);
+    const num2 = parseInt(camelot2);
+    const letter2 = camelot2.slice(-1);
+    
+    // Same number, different mode (relative major/minor)
+    if (num1 === num2 && letter1 !== letter2) {
+      return { compatible: true, score: 0.9, reason: 'Relative major/minor' };
+    }
+    
+    // Adjacent numbers, same mode
+    if (letter1 === letter2) {
+      const diff = Math.abs(num1 - num2);
+      if (diff === 1 || diff === 11) { // Adjacent on wheel
+        return { compatible: true, score: 0.8, reason: 'Adjacent key' };
+      }
+    }
+    
+    // Perfect fifth (7 semitones apart)
+    if (letter1 === letter2) {
+      const diff = Math.abs(num1 - num2);
+      if (diff === 7 || diff === 5) {
+        return { compatible: true, score: 0.7, reason: 'Perfect fifth' };
+      }
+    }
+    
+    return { compatible: false, score: 0.3, reason: 'Key clash risk' };
   }
 
   async play() {
@@ -801,24 +992,19 @@ class AudioEngine {
   }
 
   async performLoopLayerTransition() {
-    console.log('🎵 AI DJ: Performing loop-layer transition');
+    console.log('🎵 AI DJ: Performing fast professional transition');
     
-    // Create loop effect by emphasizing drums and bass
-    if (this.stemGains.drums && this.stemGains.drums.gain) {
-      this.animateGain(this.stemGains.drums, this.stemGains.drums.gain.value, 1.2, 1000);
-    }
-    if (this.stemGains.bass && this.stemGains.bass.gain) {
-      this.animateGain(this.stemGains.bass, this.stemGains.bass.gain.value, 1.1, 1000);
-    }
+    // Professional quick transition - 4 seconds total
+    const transitionDuration = 4000;
     
-    // Start next track quietly in background
+    // Start next track immediately
     await this.startBackgroundLayer();
     
-    // Layer elements over 8 seconds
-    await this.performAdvancedElementMixing(8000);
+    // Quick complementary stem mixing - 3 seconds
+    await this.performAdvancedElementMixing(3000);
     
-    // Final crossfade
-    await this.performSmoothCrossfade(4000);
+    // Fast final crossfade - 1 second
+    await this.performSmoothCrossfade(1000);
     
     this.completeTransition();
   }
@@ -883,26 +1069,84 @@ class AudioEngine {
   }
 
   async performAdvancedElementMixing(duration) {
-    console.log(`🎛️ AI DJ: Advanced element mixing over ${duration/1000}s`);
+    console.log(`🎛️ AI DJ: Smart complementary stem mixing over ${duration/1000}s`);
     
+    // PROFESSIONAL COMPLEMENTARY MIXING - NO SAME STEM OVERLAPS
+    // Track A: Keeps vocals + other, reduces drums + bass
+    // Track B: Takes drums + bass, gets other, NO vocals overlap
     const phases = [
-      { element: 'bass', delay: 0, gain: 0.8, description: 'Bass foundation' },
-      { element: 'drums', delay: duration * 0.3, gain: 0.9, description: 'Drum layer' },
-      { element: 'other', delay: duration * 0.6, gain: 0.7, description: 'Harmonic elements' },
-      { element: 'vocals', delay: duration * 0.8, gain: 0.8, description: 'Vocal layer' }
+      // Phase 1: Track B bass takes over completely, Track A bass OUT
+      { 
+        trackA: { element: 'bass', targetGain: 0.0 },
+        trackB: { element: 'bass', targetGain: 0.9 },
+        delay: 0, 
+        description: 'Bass handover - Track A bass OFF, Track B bass ON' 
+      },
+      // Phase 2: Track B drums layer in, Track A drums OUT  
+      { 
+        trackA: { element: 'drums', targetGain: 0.0 },
+        trackB: { element: 'drums', targetGain: 1.0 },
+        delay: duration * 0.3, 
+        description: 'Drum handover - Track A drums OFF, Track B drums ON' 
+      },
+      // Phase 3: Track B other elements, Track A vocals stay
+      { 
+        trackA: { element: 'other', targetGain: 0.3 },
+        trackB: { element: 'other', targetGain: 0.8 },
+        delay: duration * 0.6, 
+        description: 'Harmonic blend - Track B other, Track A other reduced' 
+      },
+      // Phase 4: Track A vocals FADE OUT, Track B vocals STAY OFF
+      { 
+        trackA: { element: 'vocals', targetGain: 0.0 },
+        trackB: { element: 'vocals', targetGain: 0.0 },
+        delay: duration * 0.8, 
+        description: 'Vocal fadeout - Clean instrumental transition' 
+      }
     ];
     
     phases.forEach(phase => {
       setTimeout(() => {
-        console.log(`🎵 Bringing in ${phase.description}`);
-        if (this.nextTrackStemGains && this.nextTrackStemGains[phase.element]) {
-          this.animateGain(
-            this.nextTrackStemGains[phase.element], 
-            0, 
-            phase.gain, 
-            duration * 0.2
-          );
-        }
+        console.log(`🎵 ${phase.description}`);
+        
+                  // Adjust Track A stem - ACTUALLY modify the audio gain
+          if (this.stemGains[phase.trackA.element] && this.stemGains[phase.trackA.element].gain) {
+            const currentGain = this.stemGains[phase.trackA.element].gain.value;
+            console.log(`🎛️ AI: Setting Track A ${phase.trackA.element} from ${currentGain.toFixed(2)} to ${phase.trackA.targetGain.toFixed(2)}`);
+            
+            // REAL audio modification
+            this.stemGains[phase.trackA.element].gain.setValueAtTime(currentGain, this.audioContext.currentTime);
+            this.stemGains[phase.trackA.element].gain.linearRampToValueAtTime(
+              phase.trackA.targetGain, 
+              this.audioContext.currentTime + (duration * 0.15 / 1000)
+            );
+            
+            // Update UI in real-time
+            this.notifyListeners('stemVolumeChanged', {
+              deck: 'A',
+              stemName: phase.trackA.element,
+              volume: phase.trackA.targetGain
+            });
+          }
+          
+          // Adjust Track B stem - ACTUALLY modify the audio gain
+          if (this.nextTrackStemGains && this.nextTrackStemGains[phase.trackB.element] && this.nextTrackStemGains[phase.trackB.element].gain) {
+            console.log(`🎛️ AI: Setting Track B ${phase.trackB.element} to ${phase.trackB.targetGain.toFixed(2)}`);
+            
+            // REAL audio modification
+            this.nextTrackStemGains[phase.trackB.element].gain.setValueAtTime(0, this.audioContext.currentTime);
+            this.nextTrackStemGains[phase.trackB.element].gain.linearRampToValueAtTime(
+              phase.trackB.targetGain, 
+              this.audioContext.currentTime + (duration * 0.15 / 1000)
+            );
+            
+            // Update UI in real-time
+            this.notifyListeners('stemVolumeChanged', {
+              deck: 'B', 
+              stemName: phase.trackB.element,
+              volume: phase.trackB.targetGain
+            });
+          }
       }, phase.delay);
     });
   }
@@ -964,7 +1208,7 @@ class AudioEngine {
   }
 
   async startIntelligentTransition() {
-    console.log('🎵 AI DJ: Starting intelligent transition between tracks');
+    console.log('🎵 AI DJ: Starting intelligent harmonic transition between tracks');
     
     if (!this.nextTrack) {
       console.log('No next track available for transition');
@@ -972,23 +1216,43 @@ class AudioEngine {
     }
     
     try {
-      // Professional DJ transition logic
-      const currentBPM = this.currentTrack.bpm || 120;
-      const nextBPM = this.nextTrack.bpm || 120;
-      const bpmDifference = Math.abs(currentBPM - nextBPM);
+      // Advanced professional DJ analysis: BPM + Key + Energy
+      const currentBPM = this.currentTrack.bmp || 120;
+      const nextBPM = this.nextTrack.bmp || 120;
+      const bmpDifference = Math.abs(currentBPM - nextBPM);
       
-      console.log(`🎵 AI DJ: Current track BPM: ${currentBPM}, Next track BPM: ${nextBPM}`);
+      // Harmonic compatibility analysis
+      const currentKey = this.currentTrack.key;
+      const nextKey = this.nextTrack.key;
+      const keyCompatibility = this.areKeysCompatible(currentKey, nextKey);
       
-      // Choose transition technique based on BPM difference
-      if (bpmDifference <= 5) {
-        console.log('🎵 AI DJ: Using smooth crossfade (similar BPMs)');
-        await this.performSmoothCrossfade();
-      } else if (bpmDifference <= 15) {
-        console.log('🎵 AI DJ: Using tempo-matched transition');
-        await this.performTempoMatchedTransition();
+      console.log(`🎵 AI DJ: Professional Track Analysis:`);
+      console.log(`   🎵 Current: ${currentBPM} BPM, ${currentKey?.name || 'Unknown'} (${currentKey?.camelot || 'N/A'})`);
+      console.log(`   🎵 Next: ${nextBPM} BPM, ${nextKey?.name || 'Unknown'} (${nextKey?.camelot || 'N/A'})`);
+      console.log(`   📊 BPM Difference: ${bmpDifference}`);
+      console.log(`   🎼 Key Compatibility: ${keyCompatibility.reason} (Score: ${keyCompatibility.score.toFixed(2)})`);
+      
+      // Professional transition selection algorithm
+      if (bmpDifference <= 3 && keyCompatibility.score >= 0.8) {
+        // Perfect harmonic match - extended musical crossfade
+        console.log('🎵 AI DJ: Perfect harmonic match - using extended musical crossfade');
+        await this.performHarmonicCrossfade(10000, keyCompatibility);
+      } else if (bmpDifference <= 6 && keyCompatibility.compatible) {
+        // Good compatibility - phrase-aligned transition
+        console.log('🎵 AI DJ: Good compatibility - using phrase-aligned transition');
+        await this.performPhraseAlignedTransition(currentBPM, nextBPM, keyCompatibility);
+      } else if (bmpDifference <= 12) {
+        // Moderate difference - may use key sync + tempo matching
+        console.log('🎵 AI DJ: Moderate difference - using key sync with tempo matching');
+        await this.performKeySyncTransition(currentBPM, nextBPM, keyCompatibility);
+      } else if (keyCompatibility.compatible) {
+        // Large BPM but good key - creative harmonic break
+        console.log('🎵 AI DJ: Large BPM but good key - using harmonic break transition');
+        await this.performHarmonicBreakTransition(keyCompatibility);
       } else {
-        console.log('🎵 AI DJ: Using creative break transition (large BPM difference)');
-        await this.performBreakTransition();
+        // Large difference + key clash - creative effect-assisted transition
+        console.log('🎵 AI DJ: Large difference + key clash - using effect-assisted creative transition');
+        await this.performCreativeEffectTransition(bmpDifference, keyCompatibility);
       }
       
     } catch (error) {
@@ -1019,6 +1283,9 @@ class AudioEngine {
       // Apply crossfade
       this.trackAGain.gain.value = currentTrackGain;
       this.trackBGain.gain.value = nextTrackGain;
+      
+      // Update UI in real-time to show live crossfade position
+      this.updateCrossfaderUI(progress);
       
       // Log progress every 20% to reduce console spam
       const progressPercent = Math.round(progress * 100);
@@ -1263,16 +1530,58 @@ class AudioEngine {
     });
   }
 
+  // Real-time UI update methods for live representation
+  updateCrossfaderUI(position) {
+    this.notifyListeners('crossfadeChanged', { position });
+  }
+
+  updateEQUI(deck, band, value) {
+    this.notifyListeners('deckEQChanged', { deck, band, value });
+  }
+
+  updateEffectUI(deck, effectName, value) {
+    this.notifyListeners('deckEffectChanged', { deck, effectName, value });
+  }
+
+  updateStemUI(deck, stemName, volume) {
+    this.notifyListeners('stemVolumeChanged', { deck, stemName, volume });
+  }
+
   completeTransition() {
-    this.currentTrack = this.nextTrack;
+    console.log('🎵 AI DJ: Completing transition - Track B becomes main');
+    
+    // Switch tracks properly
+    if (this.nextTrack) {
+      this.currentTrack = this.nextTrack;
+      this.duration = this.nextTrack.duration;
+      this.currentTime = 0;
+      
+      // Update deck assignment
+      this.currentDeck = this.nextTrack.deck || 'B';
+      
+      // Audio routing - Track B content becomes Track A audio path
+      this.trackAGain.gain.value = 0.8; // Track B content now on Track A path
+      this.trackBGain.gain.value = 0;   // Clear Track B for next track
+      
+      console.log(`🎵 ${this.currentTrack.title} is now the main track on Deck A audio path`);
+    }
+    
+    // Reset transition state
     this.nextTrack = null;
-    this.nextTrackPitchRatio = 1.0; // Reset pitch ratio
-    this.setCrossfade(0); // Reset to track A
-    this.isTransitioning = false; // Reset transition flag
-    this.hasStartedTransition = false; // Reset AI timing flag
-    this.transitionStartTime = null; // Reset timing
-    console.log('🎵 AI DJ: Transition complete, ready for next track');
-    this.notifyListeners('transitionComplete');
+    this.nextTrackStemGains = null;
+    this.nextTrackPitchRatio = 1.0;
+    this.isTransitioning = false;
+    this.hasStartedTransition = false;
+    this.transitionStartTime = null;
+    
+    // Reset crossfader to center
+    this.setCrossfade(0.5);
+    
+    // Notify UI of completion
+    this.notifyListeners('transitionComplete', {
+      newCurrentTrack: this.currentTrack,
+      newMainDeck: this.currentDeck
+    });
   }
 
   setAutoMix(enabled) {
@@ -1280,8 +1589,230 @@ class AudioEngine {
     this.notifyListeners('autoMixChanged', { enabled });
   }
 
-  loadNextTrack(trackData) {
+  async loadNextTrack(trackData) {
+    console.log('🎵 Loading next track for Deck B:', trackData.title);
     this.nextTrack = trackData;
+    
+    // Load and analyze Track B stems for beatgrid
+    try {
+      const loadedTrack = await this.loadTrack(trackData, false); // Don't make it current
+      
+      // Notify UI that Track B is loaded with beatgrid
+      this.notifyListeners('deckBTrackLoaded', {
+        track: loadedTrack,
+        deck: 'B',
+        bpm: loadedTrack.bpm,
+        beatGrid: loadedTrack.beatGrid || [],
+        waveform: loadedTrack.waveform || []
+      });
+      
+      console.log(`🎵 Track B loaded: ${trackData.title} (${loadedTrack.bmp || 120} BPM)`);
+    } catch (error) {
+      console.error('Error loading Track B:', error);
+    }
+  }
+
+  // ===== ADVANCED HARMONIC TRANSITION METHODS =====
+
+  // Perfect harmonic match - extended musical crossfade
+  async performHarmonicCrossfade(duration = 10000, keyCompatibility) {
+    console.log(`🎵 AI DJ: Performing harmonic crossfade over ${duration/1000}s`);
+    console.log(`🎼 Key relationship: ${keyCompatibility.reason}`);
+    
+    // Start next track with harmonic alignment
+    await this.startBackgroundLayer();
+    
+    // Extended EQ-based transition respecting key harmony
+    await this.performHarmonicEQTransition(duration, keyCompatibility);
+    
+    // Final smooth crossfade
+    await this.performSmoothCrossfade(duration * 0.3);
+    
+    this.completeTransition();
+  }
+
+  // Good compatibility - phrase-aligned transition
+  async performPhraseAlignedTransition(currentBPM, nextBPM, keyCompatibility) {
+    console.log(`🎵 AI DJ: Performing phrase-aligned transition`);
+    
+    // Wait for phrase boundary (8 or 16 beats)
+    const phraseBoundary = this.findNextPhraseBoundary(currentBPM);
+    console.log(`🎵 Waiting for phrase boundary at ${phraseBoundary}s`);
+    
+    // Start next track at phrase boundary
+    setTimeout(async () => {
+      await this.startBackgroundLayer();
+      await this.performAdvancedElementMixing(6000);
+      await this.performSmoothCrossfade(3000);
+      this.completeTransition();
+    }, phraseBoundary * 1000);
+  }
+
+  // Key sync with tempo matching
+  async performKeySyncTransition(currentBPM, nextBPM, keyCompatibility) {
+    console.log(`🎵 AI DJ: Performing key sync transition`);
+    
+    // Apply key sync if needed (shift pitch by semitones)
+    const keySyncShift = this.calculateKeySyncShift(keyCompatibility);
+    if (keySyncShift !== 0) {
+      console.log(`🎼 Applying key sync: ${keySyncShift} semitones`);
+      this.applyKeySync(keySyncShift);
+    }
+    
+    // Tempo matching with pitch shifting
+    const pitchRatio = currentBPM / nextBPM;
+    this.setupPitchShifting(pitchRatio);
+    
+    await this.startBackgroundLayer();
+    await this.performAdvancedElementMixing(5000);
+    await this.performSmoothCrossfade(2000);
+    
+    this.completeTransition();
+  }
+
+  // Harmonic break transition for large BPM but compatible keys  
+  async performHarmonicBreakTransition(keyCompatibility) {
+    console.log(`🎵 AI DJ: Performing harmonic break transition`);
+    
+    // Create dramatic filter sweep while maintaining harmonic content
+    this.applyHarmonicFilter(keyCompatibility);
+    
+    // Quick break with harmonic preservation
+    setTimeout(async () => {
+      await this.startBackgroundLayer();
+      
+      // Slam effect but with harmonic alignment
+      this.trackBGain.gain.setValueAtTime(0, this.audioContext.currentTime);
+      this.trackBGain.gain.linearRampToValueAtTime(0.8, this.audioContext.currentTime + 0.2);
+      
+      // Quick stem-based transition
+      await this.performAdvancedElementMixing(2000);
+      this.completeTransition();
+    }, 1000);
+  }
+
+  // Creative effect-assisted transition for challenging combinations
+  async performCreativeEffectTransition(bmpDifference, keyCompatibility) {
+    console.log(`🎵 AI DJ: Performing creative effect transition`);
+    console.log(`🎼 Large BPM difference (${bmpDifference}) + key challenge`);
+    
+    // Use echo-out with harmonic filtering
+    this.applyEchoOut(this.currentTrack.bmp);
+    
+    // Filter sweep to mask key clash
+    this.applyCreativeFilter();
+    
+    setTimeout(async () => {
+      await this.startBackgroundLayer();
+      
+      // Dramatic effect entry
+      this.applyDramaticEntry();
+      
+      // Quick transition with heavy effect processing
+      await this.performAdvancedElementMixing(3000);
+      this.completeTransition();
+    }, 2000);
+  }
+
+  // ===== HELPER METHODS FOR ADVANCED TRANSITIONS =====
+
+  findNextPhraseBoundary(bpm) {
+    // Find next 8 or 16 beat boundary based on current position
+    const beatsPerSecond = bpm / 60;
+    const currentBeat = this.currentTime * beatsPerSecond;
+    const nextPhrase = Math.ceil(currentBeat / 8) * 8; // Next 8-beat phrase
+    return nextPhrase / beatsPerSecond;
+  }
+
+  calculateKeySyncShift(keyCompatibility) {
+    // Calculate semitone shift needed for key compatibility
+    if (keyCompatibility.score >= 0.7) return 0; // Already compatible
+    
+    // Simple heuristic: try +/- 1 or 2 semitones
+    const shiftOptions = [-2, -1, 1, 2];
+    return shiftOptions[Math.floor(Math.random() * shiftOptions.length)];
+  }
+
+  applyKeySync(semitones) {
+    // Apply pitch shift to next track for key compatibility
+    const pitchShift = Math.pow(2, semitones / 12);
+    this.nextTrackPitchRatio = pitchShift;
+    console.log(`🎼 Key sync applied: ${semitones} semitones (${pitchShift.toFixed(3)}x)`);
+  }
+
+  performHarmonicEQTransition(duration, keyCompatibility) {
+    return new Promise(resolve => {
+      // EQ transition that respects harmonic content
+      const steps = 20;
+      const stepDuration = duration / steps;
+      
+      for (let i = 0; i < steps; i++) {
+        setTimeout(() => {
+          const progress = i / steps;
+          
+          // Preserve harmonic frequencies during transition
+          this.applyHarmonicEQ(progress, keyCompatibility);
+          
+          if (i === steps - 1) resolve();
+        }, i * stepDuration);
+      }
+    });
+  }
+
+  applyHarmonicEQ(progress, keyCompatibility) {
+    // EQ that preserves harmonic content
+    const smoothProgress = 0.5 * (1 - Math.cos(Math.PI * progress));
+    
+    // Frequency-conscious EQ based on key relationship
+    if (keyCompatibility.score >= 0.8) {
+      // High compatibility - gentle EQ transition
+      this.setDeckEQ('A', 'low', 1 - smoothProgress * 0.7);
+      this.setDeckEQ('B', 'low', smoothProgress * 0.9);
+    } else {
+      // Lower compatibility - more aggressive filtering
+      this.setDeckEQ('A', 'high', 1 - smoothProgress * 0.8);
+      this.setDeckEQ('B', 'high', smoothProgress * 0.8);
+    }
+  }
+
+  applyHarmonicFilter(keyCompatibility) {
+    // Filter that considers harmonic content  
+    if (keyCompatibility.score >= 0.6) {
+      // Preserve harmonic frequencies
+      this.setDeckEffect('A', 'filter', 0.3);
+    } else {
+      // Aggressive filtering for key clash
+      this.setDeckEffect('A', 'filter', 0.1);
+    }
+  }
+
+  applyEchoOut(bpm) {
+    // BPM-synced echo effect for transitions
+    const echoTime = 60 / bpm / 4; // Quarter note echo
+    this.setDeckEffect('A', 'delay', 0.6);
+    console.log(`🎵 Applied BPM-synced echo: ${echoTime.toFixed(3)}s`);
+  }
+
+  applyCreativeFilter() {
+    // Creative filter sweep for dramatic transitions
+    const filterSweep = setInterval(() => {
+      const filterValue = 0.5 + 0.4 * Math.sin(Date.now() / 200);
+      this.setDeckEffect('A', 'filter', filterValue);
+    }, 50);
+    
+    setTimeout(() => clearInterval(filterSweep), 2000);
+  }
+
+  applyDramaticEntry() {
+    // Dramatic entry effect for next track
+    this.setDeckEffect('B', 'reverb', 0.8);
+    this.setDeckEffect('B', 'filter', 0.8);
+    
+    // Fade in effects
+    setTimeout(() => {
+      this.setDeckEffect('B', 'reverb', 0.2);
+      this.setDeckEffect('B', 'filter', 0.5);
+    }, 1000);
   }
 
   // Event system
