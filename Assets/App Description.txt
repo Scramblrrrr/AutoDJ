@@ -1,0 +1,28 @@
+This app is a dekstop app that automatically mixes (dj's) user uploaded music with user prefences and configuration.
+
+App useage:
+
+People will use this app this way
+
+    1. User opens app, dashboard view, prompts them to upload music
+    2. User clicks on upload music takes them to the uploading and processing tab.
+    3. User uploads music, presses bulk process (which processes every song uploaded which hasnt been processed yet), songs process into stems.
+    3. user then goes to the AI|DJ tab, upload a queue of songs and press play.
+    4. the app begins djing the music in order of songs the user put in.
+    5. uses stems, to layer and mix the music along with other dj methods (bpm match, fan in fade out, various effects, etc.) to ensure the users music mixes together smoothly.
+
+Tabs:
+1. Dashboard - shows info
+2. AI|DJ - Users make music queues and set prefrences and press play. visualizes the active stems
+3. Upload and process - user uploads downloaded songs and processes them into stems, shows progress and completion status
+4. Music downloader - Allows users to enter youtube or soundcloud links and will download the song
+
+Tech specs:
+
+The processing will use meta's open source stem splitting to process songs
+Include advanced algorithms based off real djing to power the ai|dj feature
+User prefrences will be saved
+
+Colour theme - greyscale, dark
+
+Style: clean sharp minimalistic modern
