@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
-import { Play, Pause, SkipForward, Volume2, Shuffle, Settings, Plus, X, BarChart3, Music, Check, GripVertical, Info } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { Play, Pause, SkipForward, SkipBack, Volume2, Shuffle, Settings, Plus, X, BarChart3, Music, Check, GripVertical, Info, Sliders, Zap, Filter, RotateCcw, FastForward, Rewind } from 'lucide-react';
 import storage from '../utils/storage';
+import audioEngine from '../utils/audioEngine';
 
 const AIDJContainer = styled.div`
   padding: 30px;
@@ -163,6 +163,351 @@ const StemVisualizer = styled.div`
       margin-right: 8px;
       color: #888;
     }
+  }
+`;
+
+const DJMixer = styled.div`
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 20px;
+  
+  h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    
+    svg {
+      margin-right: 8px;
+      color: #888;
+    }
+  }
+`;
+
+const MixerControls = styled.div`
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 24px;
+  align-items: start;
+`;
+
+const ChannelStrip = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  
+  .channel-header {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ccc;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+`;
+
+const EQSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  
+  .eq-label {
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    text-transform: uppercase;
+  }
+`;
+
+const ModernSlider = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  
+  .slider-label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .slider-container {
+    width: 80px;
+    height: 6px;
+    background: #333;
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+    
+    &:hover {
+      background: #3a3a3a;
+    }
+    
+    .slider-track {
+      height: 100%;
+      background: linear-gradient(90deg, #666, #888);
+      border-radius: 3px;
+      width: ${props => props.$value * 100}%;
+      transition: width 0.1s ease;
+    }
+    
+    .slider-thumb {
+      position: absolute;
+      top: -4px;
+      width: 14px;
+      height: 14px;
+      background: #888;
+      border-radius: 50%;
+      left: ${props => props.$value * 100}%;
+      transform: translateX(-50%);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      transition: all 0.1s ease;
+      
+      &:hover {
+        background: #999;
+        transform: translateX(-50%) scale(1.1);
+      }
+    }
+  }
+  
+  .slider-value {
+    font-size: 10px;
+    color: #666;
+    min-width: 24px;
+    text-align: center;
+  }
+`;
+
+const RotaryKnob = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  
+  .knob-label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .knob-container {
+    width: 50px;
+    height: 50px;
+    background: radial-gradient(circle, #2a2a2a, #1a1a1a);
+    border: 2px solid #444;
+    border-radius: 50%;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    
+    &:hover {
+      border-color: #666;
+      box-shadow: 0 0 10px rgba(136, 136, 136, 0.2);
+    }
+    
+    &::before {
+      content: '';
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      width: 3px;
+      height: 15px;
+      background: ${props => props.$active ? '#888' : '#666'};
+      border-radius: 2px;
+      transform: translateX(-50%) rotate(${props => (props.$value - 0.5) * 270}deg);
+      transform-origin: center 19px;
+      transition: all 0.2s ease;
+    }
+    
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      background: #333;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+  }
+  
+  .knob-value {
+    font-size: 10px;
+    color: #666;
+    min-width: 24px;
+    text-align: center;
+  }
+`;
+
+const Crossfader = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  
+  .crossfader-track {
+    width: 200px;
+    height: 8px;
+    background: #333;
+    border-radius: 4px;
+    position: relative;
+    cursor: pointer;
+    
+    .crossfader-thumb {
+      position: absolute;
+      top: -8px;
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, #666, #888);
+      border-radius: 50%;
+      left: ${props => props.$position * 100}%;
+      transform: translateX(-50%);
+      transition: all 0.1s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      
+      &:hover {
+        background: linear-gradient(135deg, #777, #999);
+        transform: translateX(-50%) scale(1.1);
+      }
+    }
+  }
+  
+  .crossfader-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 200px;
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+  }
+`;
+
+const EffectsRack = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+`;
+
+const EffectControl = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  
+  .effect-name {
+    font-size: 12px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .effect-slider {
+    width: 100px;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    position: relative;
+    cursor: pointer;
+    
+    .slider-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #666, #888);
+      border-radius: 2px;
+      width: ${props => props.$value * 100}%;
+    }
+    
+    .slider-thumb {
+      position: absolute;
+      top: -6px;
+      width: 16px;
+      height: 16px;
+      background: #888;
+      border-radius: 50%;
+      left: ${props => props.$value * 100}%;
+      transform: translateX(-50%);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+  }
+  
+  .effect-value {
+    font-size: 11px;
+    color: #666;
+  }
+`;
+
+const BPMSection = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  
+  .bpm-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    
+    .bpm-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+    }
+    
+    .bpm-label {
+      font-size: 12px;
+      color: #888;
+      text-transform: uppercase;
+    }
+  }
+  
+  .sync-button {
+    background: ${props => props.$synced ? 'linear-gradient(135deg, #4a4a4a, #666)' : '#3a3a3a'};
+    border: 1px solid ${props => props.$synced ? '#888' : '#555'};
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: ${props => props.$synced ? '#fff' : '#888'};
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    
+    &:hover {
+      background: linear-gradient(135deg, #4a4a4a, #666);
+      color: #fff;
+    }
+  }
+`;
+
+const AutoMixIndicator = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: ${props => props.$active ? 'linear-gradient(135deg, #2a4a2a, #4a6a4a)' : '#3a3a3a'};
+  border: 1px solid ${props => props.$active ? '#4a8a4a' : '#555'};
+  border-radius: 8px;
+  font-size: 12px;
+  color: ${props => props.$active ? '#8af48a' : '#888'};
+  
+  .indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: ${props => props.$active ? '#4af44a' : '#666'};
+    animation: ${props => props.$active ? 'pulse 2s infinite' : 'none'};
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 `;
 
@@ -568,20 +913,47 @@ function AIDJ() {
     title: "Select a track to start mixing",
     artist: "No track loaded",
     duration: 0,
-    currentTime: 0
+    currentTime: 0,
+    bpm: 120
   });
   const [queue, setQueue] = useState([]);
   const [stemVolumes, setStemVolumes] = useState({
-    vocals: 75,
-    drums: 85,
-    bass: 80,
-    other: 70
+    vocals: 0.75,
+    drums: 0.85,
+    bass: 0.80,
+    other: 0.70
   });
   const [showSongSelection, setShowSongSelection] = useState(false);
   const [processedTracks, setProcessedTracks] = useState([]);
   const [selectedTracks, setSelectedTracks] = useState([]);
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  
+  // DJ Controls State
+  const [autoMixEnabled, setAutoMixEnabled] = useState(false);
+  const [crossfadePosition, setCrossfadePosition] = useState(0.5);
+  const [bpmSynced, setBpmSynced] = useState(false);
+  const [deckEffects, setDeckEffects] = useState({
+    deckA: {
+      reverb: 0,
+      delay: 0,  
+      filter: 0,
+      distortion: 0
+    },
+    deckB: {
+      reverb: 0,
+      delay: 0,
+      filter: 0, 
+      distortion: 0
+    }
+  });
+  const [eqSettings, setEqSettings] = useState({
+    deckA: { high: 0.5, mid: 0.5, low: 0.5 },
+    deckB: { high: 0.5, mid: 0.5, low: 0.5 }
+  });
+  
+  const audioEngineRef = useRef(null);
 
-  // Load processed tracks on component mount
+  // Load processed tracks and initialize audio engine
   useEffect(() => {
     const loadProcessedTracks = () => {
       const allTracks = storage.getTracks();
@@ -593,10 +965,94 @@ function AIDJ() {
 
     loadProcessedTracks();
     
+    // Initialize audio engine
+    audioEngineRef.current = audioEngine;
+    
+    // Set up audio engine listeners
+    const handleAudioEvent = (event, data) => {
+      switch (event) {
+        case 'playbackStarted':
+          setIsPlaying(true);
+          break;
+        case 'playbackPaused':
+        case 'playbackStopped':
+          setIsPlaying(false);
+          break;
+        case 'timeUpdate':
+          setCurrentTrack(prev => ({
+            ...prev,
+            currentTime: data.currentTime,
+            duration: data.duration,
+            currentTimeFormatted: data.currentTimeFormatted,
+            durationFormatted: data.durationFormatted,
+            progress: data.progress
+          }));
+          break;
+        case 'trackEnded':
+          // Auto-progress to next track if queue has more tracks
+          if (queue.length > 1) {
+            setQueue(prev => prev.slice(1));
+            setTimeout(() => loadCurrentTrack(), 100);
+          } else {
+            setIsPlaying(false);
+          }
+          break;
+        case 'stemVolumeChanged':
+          setStemVolumes(prev => ({
+            ...prev,
+            [data.stemName]: data.volume
+          }));
+          break;
+        case 'crossfadeChanged':
+          setCrossfadePosition(data.position);
+          break;
+        case 'deckEffectChanged':
+          setDeckEffects(prev => ({
+            ...prev,
+            [`deck${data.deck}`]: {
+              ...prev[`deck${data.deck}`],
+              [data.effectName]: data.value
+            }
+          }));
+          break;
+        case 'deckEQChanged':
+          setEqSettings(prev => ({
+            ...prev,
+            [`deck${data.deck}`]: {
+              ...prev[`deck${data.deck}`],
+              [data.band]: data.value
+            }
+          }));
+          break;
+        case 'autoMixChanged':
+          setAutoMixEnabled(data.enabled);
+          break;
+        case 'transitionComplete':
+          // Load next track from queue
+          if (queue.length > 1) {
+            const nextTrack = queue[1];
+            setCurrentTrack({
+              title: nextTrack.title,
+              artist: nextTrack.artist,
+              duration: nextTrack.duration,
+              currentTime: 0,
+              bpm: nextTrack.bpm || 120
+            });
+            setQueue(prev => prev.slice(1));
+          }
+          break;
+      }
+    };
+    
+    audioEngine.addEventListener(handleAudioEvent);
+    
     // Refresh processed tracks every 5 seconds to catch newly processed songs
     const interval = setInterval(loadProcessedTracks, 5000);
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      audioEngine.removeEventListener(handleAudioEvent);
+    };
   }, []);
 
   const stems = [
@@ -606,8 +1062,119 @@ function AIDJ() {
     { key: 'other', name: 'Other', volume: stemVolumes.other }
   ];
 
-  const togglePlayback = () => {
-    setIsPlaying(!isPlaying);
+  const togglePlayback = async () => {
+    try {
+      if (isPlaying) {
+        audioEngine.pause();
+      } else {
+        if (!audioEngine.currentTrack && queue.length > 0) {
+          await loadCurrentTrack();
+        }
+        await audioEngine.play();
+      }
+    } catch (error) {
+      console.error('Error toggling playback:', error);
+    }
+  };
+
+  const loadCurrentTrack = async () => {
+    if (queue.length === 0) return;
+    
+    try {
+      const trackToLoad = queue[0];
+      console.log('Loading track for playback:', trackToLoad);
+      
+      const loadedTrack = await audioEngine.loadTrack(trackToLoad);
+      audioEngine.currentTrack = loadedTrack;
+      audioEngine.duration = loadedTrack.duration;
+      
+      // Load next track if available
+      if (queue.length > 1) {
+        const nextTrack = await audioEngine.loadTrack(queue[1]);
+        audioEngine.loadNextTrack(nextTrack);
+      }
+      
+      setCurrentTrack({
+        title: loadedTrack.title,
+        artist: loadedTrack.artist,
+        duration: loadedTrack.duration,
+        currentTime: 0,
+        bpm: loadedTrack.bpm
+      });
+      
+    } catch (error) {
+      console.error('Error loading track:', error);
+    }
+  };
+
+  const skipToNext = async () => {
+    if (queue.length > 1) {
+      setQueue(prev => prev.slice(1));
+      await loadCurrentTrack();
+      if (isPlaying) {
+        await audioEngine.play();
+      }
+    }
+  };
+
+  const handleStemVolumeChange = (stemName, volume) => {
+    audioEngine.setStemVolume(stemName, volume);
+  };
+
+  const handleCrossfadeChange = (position) => {
+    audioEngine.setCrossfade(position);
+  };
+
+  const handleDeckEffectChange = (deck, effectName, value) => {
+    audioEngine.setDeckEffect(deck, effectName, value);
+  };
+
+  const handleDeckEQChange = (deck, band, value) => {
+    audioEngine.setDeckEQ(deck, band, value);
+  };
+
+  const toggleAutoMix = () => {
+    const newState = !autoMixEnabled;
+    audioEngine.setAutoMix(newState);
+    setAutoMixEnabled(newState);
+  };
+
+  const syncBPM = () => {
+    setBpmSynced(!bpmSynced);
+    // In a real implementation, this would sync the BPM between tracks
+    console.log('BPM sync toggled:', !bpmSynced);
+  };
+
+  const skipForward = () => {
+    if (audioEngine.currentTrack) {
+      const newTime = Math.min(
+        audioEngine.currentTime + 15, 
+        audioEngine.currentTrack.duration || audioEngine.duration
+      );
+      seekToTime(newTime);
+    }
+  };
+
+  const skipBackward = () => {
+    if (audioEngine.currentTrack) {
+      const newTime = Math.max(audioEngine.currentTime - 15, 0);
+      seekToTime(newTime);
+    }
+  };
+
+  const seekToTime = (time) => {
+    if (!audioEngine.currentTrack) return;
+    
+    // Stop current playback
+    audioEngine.stopAllSources();
+    
+    // Update current time
+    audioEngine.currentTime = time;
+    
+    // Restart playback from new position if playing
+    if (isPlaying) {
+      audioEngine.startPlayback();
+    }
   };
 
   const openSongSelection = () => {
@@ -631,7 +1198,7 @@ function AIDJ() {
     });
   };
 
-  const addSelectedToQueue = () => {
+  const addSelectedToQueue = async () => {
     if (selectedTracks.length === 0) return;
     
     const newQueueItems = selectedTracks.map(track => ({
@@ -645,8 +1212,14 @@ function AIDJ() {
       hasStemsReady: true
     }));
     
+    const wasQueueEmpty = queue.length === 0;
     setQueue(prev => [...prev, ...newQueueItems]);
     closeSongSelection();
+    
+    // If queue was empty, load the first track
+    if (wasQueueEmpty && newQueueItems.length > 0) {
+      setTimeout(() => loadCurrentTrack(), 100); // Small delay to ensure state is updated
+    }
     
     console.log(`Added ${selectedTracks.length} tracks to queue`);
   };
@@ -655,15 +1228,32 @@ function AIDJ() {
     setQueue(queue.filter(track => track.id !== id));
   };
 
-  const handleDragEnd = (result) => {
-    if (!result.destination) return;
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    
+    if (draggedIndex === null || draggedIndex === dropIndex) return;
     
     const items = Array.from(queue);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
+    const [reorderedItem] = items.splice(draggedIndex, 1);
+    items.splice(dropIndex, 0, reorderedItem);
     
     setQueue(items);
-    console.log(`Moved track from position ${result.source.index + 1} to ${result.destination.index + 1}`);
+    console.log(`Moved track from position ${draggedIndex + 1} to ${dropIndex + 1}`);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
   };
 
   const getProcessedStemCount = (track) => {
@@ -681,13 +1271,29 @@ function AIDJ() {
       <Header>
         <h1>AI|DJ Studio</h1>
         <div>
-          <button className="btn-secondary" style={{ marginRight: '12px' }}>
+          <button 
+            className="btn-secondary" 
+            style={{ marginRight: '12px' }}
+            title="Open DJ Settings and Preferences"
+          >
             <Settings size={16} style={{ marginRight: '8px' }} />
             Settings
           </button>
-          <button className="btn-primary">
+          <button 
+            className={autoMixEnabled ? "btn-primary" : "btn-secondary"}
+            onClick={toggleAutoMix}
+            title={autoMixEnabled 
+              ? "🤖 AI Auto-Mix is ON - AI will handle transitions automatically. Click to switch to manual control." 
+              : "🎛️ Manual Mode - You control all mixing. Click to enable AI Auto-Mix for intelligent transitions."
+            }
+            style={{
+              background: autoMixEnabled 
+                ? 'linear-gradient(135deg, #4a6a4a, #6a8a6a)' 
+                : undefined
+            }}
+          >
             <Shuffle size={16} style={{ marginRight: '8px' }} />
-            Auto Mix
+            Auto Mix {autoMixEnabled ? 'ON' : 'OFF'}
           </button>
         </div>
       </Header>
@@ -704,30 +1310,40 @@ function AIDJ() {
             </NowPlaying>
 
             <Controls>
-              <button>
+              <button title="🔀 Shuffle queue - Randomize the order of tracks in your queue">
                 <Shuffle size={20} />
               </button>
-              <button>
-                <SkipForward size={20} style={{ transform: 'rotate(180deg)' }} />
+              <button onClick={skipBackward} title="⏪ Rewind 15 seconds - Jump back in the current track">
+                <Rewind size={18} />
               </button>
-              <button className="play-button" onClick={togglePlayback}>
+              <button title="⏮️ Previous Track - Go to the previous song in queue">
+                <SkipBack size={20} />
+              </button>
+              <button 
+                className="play-button" 
+                onClick={togglePlayback} 
+                title={isPlaying ? '⏸️ Pause - Stop the music playback' : '▶️ Play - Start the music with stem mixing'}
+              >
                 {isPlaying ? <Pause size={24} /> : <Play size={24} />}
               </button>
-              <button>
+              <button onClick={skipToNext} title="⏭️ Next Track - Skip to the next song in queue">
                 <SkipForward size={20} />
               </button>
-              <button>
+              <button onClick={skipForward} title="⏩ Skip 15 seconds - Jump forward in the current track">
+                <FastForward size={18} />
+              </button>
+              <button title="🔊 Master Volume - Adjust overall output level">
                 <Volume2 size={20} />
               </button>
             </Controls>
 
-            <ProgressBar $progress={progress}>
+            <ProgressBar $progress={currentTrack.progress || 0}>
               <div className="progress" />
             </ProgressBar>
 
             <TimeDisplay>
-              <span>0:00</span>
-              <span>3:45</span>
+              <span>{currentTrack.currentTimeFormatted || '0:00'}</span>
+              <span>{currentTrack.durationFormatted || '0:00'}</span>
             </TimeDisplay>
           </PlayerSection>
 
@@ -738,26 +1354,575 @@ function AIDJ() {
             </h3>
             <StemGrid>
               {stems.map(stem => (
-                <StemCard key={stem.key} $volume={stem.volume}>
+                <StemCard key={stem.key} $volume={stem.volume * 100}>
                   <h4>{stem.name}</h4>
-                  <div className="volume-slider">
+                  <div 
+                    className="volume-slider"
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const volume = x / rect.width;
+                      handleStemVolumeChange(stem.key, Math.max(0, Math.min(1, volume)));
+                    }}
+                  >
                     <div className="slider-fill" />
                   </div>
-                  <div className="volume-label">{stem.volume}%</div>
+                  <div className="volume-label">{Math.round(stem.volume * 100)}%</div>
                 </StemCard>
               ))}
             </StemGrid>
           </StemVisualizer>
+
+          <DJMixer>
+            <BPMSection $synced={bpmSynced}>
+              <div className="bpm-display">
+                <div className="bpm-value">{currentTrack.bpm}</div>
+                <div className="bpm-label">BPM</div>
+              </div>
+              <AutoMixIndicator $active={autoMixEnabled}>
+                <div className="indicator-dot"></div>
+                AI Auto-Mix {autoMixEnabled ? 'ON' : 'OFF'}
+              </AutoMixIndicator>
+              <button 
+                className="sync-button" 
+                onClick={syncBPM}
+                title={bpmSynced 
+                  ? "🔄 BPM Sync is ON - Tracks are tempo-matched for smooth mixing" 
+                  : "🔄 Enable BPM Sync - Automatically match track tempos for seamless transitions"
+                }
+              >
+                <RotateCcw size={14} style={{ marginRight: '4px' }} />
+                SYNC
+              </button>
+            </BPMSection>
+
+            <h3>
+              <Sliders size={20} />
+              Professional DJ Mixer
+            </h3>
+            
+            <MixerControls>
+              <ChannelStrip>
+                <div className="channel-header">🎵 Deck A</div>
+                <EQSection>
+                  <RotaryKnob 
+                    $value={eqSettings.deckA.high} 
+                    $active={eqSettings.deckA.high !== 0.5}
+                  >
+                    <div className="knob-label">High</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckA.high;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('A', 'high', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckA.high - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                  
+                  <RotaryKnob 
+                    $value={eqSettings.deckA.mid} 
+                    $active={eqSettings.deckA.mid !== 0.5}
+                  >
+                    <div className="knob-label">Mid</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckA.mid;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('A', 'mid', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckA.mid - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                  
+                  <RotaryKnob 
+                    $value={eqSettings.deckA.low} 
+                    $active={eqSettings.deckA.low !== 0.5}
+                  >
+                    <div className="knob-label">Low</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckA.low;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('A', 'low', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);  
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckA.low - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                </EQSection>
+              </ChannelStrip>
+
+              <Crossfader $position={crossfadePosition}>
+                <div 
+                  className="crossfader-track"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startPosition = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const position = Math.max(0, Math.min(1, x / rect.width));
+                      handleCrossfadeChange(position);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleCrossfadeChange(startPosition);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="crossfader-thumb"></div>
+                </div>
+                <div className="crossfader-labels">
+                  <span>A</span>
+                  <span>B</span>
+                </div>
+              </Crossfader>
+
+              <ChannelStrip>
+                <div className="channel-header">🎵 Deck B</div>
+                <EQSection>
+                  <RotaryKnob 
+                    $value={eqSettings.deckB.high} 
+                    $active={eqSettings.deckB.high !== 0.5}
+                  >
+                    <div className="knob-label">High</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckB.high;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('B', 'high', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckB.high - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                  
+                  <RotaryKnob 
+                    $value={eqSettings.deckB.mid} 
+                    $active={eqSettings.deckB.mid !== 0.5}
+                  >
+                    <div className="knob-label">Mid</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckB.mid;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('B', 'mid', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckB.mid - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                  
+                  <RotaryKnob 
+                    $value={eqSettings.deckB.low} 
+                    $active={eqSettings.deckB.low !== 0.5}
+                  >
+                    <div className="knob-label">Low</div>
+                    <div 
+                      className="knob-container"
+                      onMouseDown={(e) => {
+                        const startY = e.clientY;
+                        const startValue = eqSettings.deckB.low;
+                        
+                        const handleMouseMove = (e) => {
+                          const deltaY = startY - e.clientY;
+                          const newValue = Math.max(0, Math.min(1, startValue + deltaY / 100));
+                          handleDeckEQChange('B', 'low', newValue);
+                        };
+                        
+                        const handleMouseUp = () => {
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                        
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    />
+                    <div className="knob-value">{Math.round((eqSettings.deckB.low - 0.5) * 40)}dB</div>
+                  </RotaryKnob>
+                </EQSection>
+              </ChannelStrip>
+            </MixerControls>
+
+            <EffectsRack>
+              <div style={{ textAlign: 'center', marginBottom: '16px', fontSize: '14px', color: '#888' }}>
+                <strong>Deck A Effects</strong>
+              </div>
+              
+              <ModernSlider $value={deckEffects.deckA.reverb}>
+                <div className="slider-label">
+                  <Zap size={10} style={{ marginRight: '4px' }} />
+                  Reverb
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('A', 'reverb', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('A', 'reverb', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckA.reverb * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckA.delay}>
+                <div className="slider-label">
+                  <RotateCcw size={10} style={{ marginRight: '4px' }} />
+                  Delay
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('A', 'delay', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('A', 'delay', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckA.delay * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckA.filter}>
+                <div className="slider-label">
+                  <Filter size={10} style={{ marginRight: '4px' }} />
+                  Filter
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('A', 'filter', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('A', 'filter', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckA.filter * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckA.distortion}>
+                <div className="slider-label">
+                  <Zap size={10} style={{ marginRight: '4px' }} />
+                  Distortion
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('A', 'distortion', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('A', 'distortion', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckA.distortion * 100)}%</div>
+              </ModernSlider>
+
+              <div style={{ textAlign: 'center', margin: '24px 0 16px', fontSize: '14px', color: '#888' }}>
+                <strong>Deck B Effects</strong>
+              </div>
+
+              <ModernSlider $value={deckEffects.deckB.reverb}>
+                <div className="slider-label">
+                  <Zap size={10} style={{ marginRight: '4px' }} />
+                  Reverb
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('B', 'reverb', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('B', 'reverb', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckB.reverb * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckB.delay}>
+                <div className="slider-label">
+                  <RotateCcw size={10} style={{ marginRight: '4px' }} />
+                  Delay
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('B', 'delay', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('B', 'delay', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckB.delay * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckB.filter}>
+                <div className="slider-label">
+                  <Filter size={10} style={{ marginRight: '4px' }} />
+                  Filter
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('B', 'filter', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('B', 'filter', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckB.filter * 100)}%</div>
+              </ModernSlider>
+
+              <ModernSlider $value={deckEffects.deckB.distortion}>
+                <div className="slider-label">
+                  <Zap size={10} style={{ marginRight: '4px' }} />
+                  Distortion
+                </div>
+                <div 
+                  className="slider-container"
+                  onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const startX = e.clientX - rect.left;
+                    const startValue = startX / rect.width;
+                    
+                    const handleMouseMove = (e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const value = Math.max(0, Math.min(1, x / rect.width));
+                      handleDeckEffectChange('B', 'distortion', value);
+                    };
+                    
+                    const handleMouseUp = () => {
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                    
+                    handleDeckEffectChange('B', 'distortion', startValue);
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  <div className="slider-track"></div>
+                  <div className="slider-thumb"></div>
+                </div>
+                <div className="slider-value">{Math.round(deckEffects.deckB.distortion * 100)}%</div>
+              </ModernSlider>
+            </EffectsRack>
+          </DJMixer>
         </LeftPanel>
 
         <RightPanel>
           <QueueSection>
             <h3>
               Queue ({queue.length})
-              <AddButton onClick={openSongSelection}>
+              <AddButton 
+                onClick={openSongSelection}
+                title="➕ Add songs to queue - Select from your processed tracks ready for DJ mixing"
+              >
                 <Plus size={16} />
                 <div className="tooltip">
-                  Add processed songs to queue
+                  🎵 Add processed songs to DJ queue
                 </div>
               </AddButton>
             </h3>
@@ -769,57 +1934,49 @@ function AIDJ() {
                   <p>No tracks in queue</p>
                   <p className="empty-subtitle">Click + to add processed music</p>
                 </EmptyState>
-              ) : (
-                <DragDropContext onDragEnd={handleDragEnd}>
-                  <Droppable droppableId="queue">
-                    {(provided) => (
-                      <div {...provided.droppableProps} ref={provided.ref}>
-                        {queue.map((track, index) => (
-                          <Draggable key={track.id} draggableId={track.id} index={index}>
-                            {(provided, snapshot) => (
-                              <QueueItem
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                $active={index === 0}
-                                $isDragging={snapshot.isDragging}
-                              >
-                                <div 
-                                  className="drag-handle"
-                                  {...provided.dragHandleProps}
-                                  title="Drag to reorder"
-                                >
-                                  <GripVertical size={16} />
-                                </div>
-                                <div className="track-thumb">
-                                  <Music size={20} />
-                                </div>
-                                <div className="track-details">
-                                  <h4>{track.title}</h4>
-                                  <p>{track.artist} • {track.duration}</p>
-                                </div>
-                                {track.hasStemsReady && (
-                                  <div className="track-stems" title="Stems ready for AI mixing">
-                                    <BarChart3 size={12} />
-                                    4 stems
-                                  </div>
-                                )}
-                                <button 
-                                  className="remove-btn"
-                                  onClick={() => removeFromQueue(track.id)}
-                                  title="Remove from queue"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </QueueItem>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                      </div>
-                    )}
-                  </Droppable>
-                </DragDropContext>
-              )}
+                              ) : (
+                  <div>
+                    {queue.map((track, index) => (
+                      <QueueItem
+                        key={track.id}
+                        $active={index === 0}
+                        $isDragging={false}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <div 
+                          className="drag-handle"
+                          title="Drag to reorder"
+                        >
+                          <GripVertical size={16} />
+                        </div>
+                        <div className="track-thumb">
+                          <Music size={20} />
+                        </div>
+                        <div className="track-details">
+                          <h4>{track.title}</h4>
+                          <p>{track.artist} • {track.duration}</p>
+                        </div>
+                        {track.hasStemsReady && (
+                          <div className="track-stems" title="Stems ready for AI mixing">
+                            <BarChart3 size={12} />
+                            4 stems
+                          </div>
+                        )}
+                        <button 
+                          className="remove-btn"
+                          onClick={() => removeFromQueue(track.id)}
+                          title="Remove from queue"
+                        >
+                          <X size={16} />
+                        </button>
+                      </QueueItem>
+                    ))}
+                  </div>
+                )}
             </QueueList>
           </QueueSection>
         </RightPanel>
@@ -881,13 +2038,21 @@ function AIDJ() {
                 }
               </div>
               <div className="modal-buttons">
-                <button className="btn-cancel" onClick={closeSongSelection}>
+                <button 
+                  className="btn-cancel" 
+                  onClick={closeSongSelection}
+                  title="Close song selection without adding tracks"
+                >
                   Cancel
                 </button>
                 <button 
                   className="btn-add" 
                   onClick={addSelectedToQueue}
                   disabled={selectedTracks.length === 0}
+                  title={selectedTracks.length === 0 
+                    ? "Select songs first to add them to the DJ queue"
+                    : `Add ${selectedTracks.length} selected song${selectedTracks.length !== 1 ? 's' : ''} to the DJ queue for mixing`
+                  }
                 >
                   Add {selectedTracks.length > 0 ? `${selectedTracks.length} ` : ''}to Queue
                 </button>

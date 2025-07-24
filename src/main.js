@@ -68,6 +68,36 @@ ipcMain.handle('select-folder', async () => {
   return result.filePaths[0];
 });
 
+// Handler for loading audio files (for DJ mixing)
+ipcMain.handle('load-audio-file', async (event, filePath) => {
+  return new Promise((resolve, reject) => {
+    console.log('Loading audio file:', filePath);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      reject(new Error(`Audio file not found: ${filePath}`));
+      return;
+    }
+    
+    try {
+      // Read the file as a buffer
+      const fileBuffer = fs.readFileSync(filePath);
+      
+      // Convert to ArrayBuffer for Web Audio API
+      const arrayBuffer = fileBuffer.buffer.slice(
+        fileBuffer.byteOffset,
+        fileBuffer.byteOffset + fileBuffer.byteLength
+      );
+      
+      console.log(`Successfully loaded audio file: ${filePath} (${arrayBuffer.byteLength} bytes)`);
+      resolve(arrayBuffer);
+    } catch (error) {
+      console.error('Error reading audio file:', error);
+      reject(error);
+    }
+  });
+});
+
 // Add a simple test handler first
 ipcMain.handle('test-python', async (event) => {
   return new Promise((resolve, reject) => {

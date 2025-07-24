@@ -97,13 +97,38 @@ class DemucsSimpleProcessor:
                     current_time = time.time()
                     elapsed = current_time - start_time
                     
-                    # Send progress updates every 10 seconds
-                    if current_time - last_progress_time >= 10:
-                        minutes = int(elapsed // 60)
-                        seconds = int(elapsed % 60)
-                        print(f"PROGRESS: Demucs processing... {minutes}m {seconds}s elapsed", flush=True)
-                        sys.stdout.flush()
-                        last_progress_time = current_time
+                    # Parse Demucs percentage from output like "16%|#########3..."
+                    output_str = output.strip()
+                    if '%|' in output_str:
+                        try:
+                            percentage_str = output_str.split('%|')[0].strip()
+                            # Handle decimal percentages
+                            if '.' in percentage_str:
+                                percentage = int(float(percentage_str))
+                            else:
+                                percentage = int(percentage_str)
+                            
+                            # Convert to our progress scale (40% = start of Demucs, 80% = end)
+                            # Demucs goes 0-100%, we map it to 40-80% of our total progress
+                            mapped_percentage = 40 + int(percentage * 0.4)
+                            print(f"PROGRESS: {mapped_percentage}% - Demucs separation progress...", flush=True)
+                            sys.stdout.flush()
+                        except (ValueError, IndexError):
+                            # If parsing fails, fall back to time-based updates
+                            if current_time - last_progress_time >= 10:
+                                minutes = int(elapsed // 60)
+                                seconds = int(elapsed % 60)
+                                print(f"PROGRESS: Demucs processing... {minutes}m {seconds}s elapsed", flush=True)
+                                sys.stdout.flush()
+                                last_progress_time = current_time
+                    else:
+                        # Send progress updates every 10 seconds if no percentage found
+                        if current_time - last_progress_time >= 10:
+                            minutes = int(elapsed // 60)
+                            seconds = int(elapsed % 60)
+                            print(f"PROGRESS: Demucs processing... {minutes}m {seconds}s elapsed", flush=True)
+                            sys.stdout.flush()
+                            last_progress_time = current_time
                     
                     # Log Demucs output
                     logger.info(f"Demucs: {output.strip()}")

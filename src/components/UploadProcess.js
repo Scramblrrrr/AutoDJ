@@ -257,6 +257,37 @@ function UploadProcess() {
     };
   }, []);
 
+  // Watch for progress message changes and update file progress
+  useEffect(() => {
+    const progressData = progressMessages['stem-processing'];
+    if (progressData && typeof progressData === 'string') {
+      console.log('Processing progress message:', progressData); // Debug log
+      const percentageMatch = progressData.match(/PROGRESS:\s*(\d+)%/);
+      if (percentageMatch) {
+        const percentage = parseInt(percentageMatch[1]);
+        console.log('Extracted percentage:', percentage); // Debug log
+        
+        // Find and update the currently processing file
+        setFiles(prevFiles => {
+          const processingFiles = prevFiles.filter(f => f.status === 'processing');
+          console.log('Processing files found:', processingFiles.length); // Debug log
+          
+          return prevFiles.map(file => {
+            if (file.status === 'processing') {
+              console.log(`Updating file ${file.name} progress to ${percentage}%`); // Debug log
+              // Update storage as well
+              storage.updateTrack(file.id, { progress: percentage });
+              return { ...file, progress: percentage };
+            }
+            return file;
+          });
+        });
+      } else {
+        console.log('No percentage match found in:', progressData); // Debug log
+      }
+    }
+  }, [progressMessages]);
+
   const onDrop = useCallback((acceptedFiles) => {
     const newFiles = acceptedFiles.map(file => {
       const fileInfo = fileManager.getFileInfo(file.path || file.name);
