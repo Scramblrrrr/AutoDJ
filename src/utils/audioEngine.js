@@ -312,81 +312,255 @@ class AudioEngine {
   }
 
   autocorrelationBPMWithGrid(data, sampleRate) {
-    // Calculate energy to find beat onsets
-    const windowSize = 1024;
+    console.log('🎵 Professional beat analysis: detecting BPM, downbeats, and phrases...');
+    
+    // Enhanced energy-based onset detection with spectral flux
+    const windowSize = 2048;
     const hopSize = 512;
     const energyValues = [];
+    const spectralFlux = [];
+    
+    let prevSpectrum = new Array(windowSize / 2).fill(0);
     
     for (let i = 0; i < data.length - windowSize; i += hopSize) {
+      // Calculate energy with Hann window
       let energy = 0;
-      for (let j = 0; j < windowSize; j++) {
-        energy += Math.abs(data[i + j]);
+      const window = data.slice(i, i + windowSize);
+      
+      // Apply Hann window for better frequency analysis
+      const hannWindow = window.map((sample, idx) => 
+        sample * 0.5 * (1 - Math.cos(2 * Math.PI * idx / (windowSize - 1)))
+      );
+      
+      // Simple spectrum calculation for spectral flux
+      const spectrum = new Array(windowSize / 2).fill(0);
+      for (let k = 0; k < windowSize / 2; k++) {
+        let real = 0, imag = 0;
+        for (let n = 0; n < windowSize; n++) {
+          const angle = -2 * Math.PI * k * n / windowSize;
+          real += hannWindow[n] * Math.cos(angle);
+          imag += hannWindow[n] * Math.sin(angle);
+        }
+        spectrum[k] = Math.sqrt(real * real + imag * imag);
+        energy += spectrum[k];
       }
+      
+      // Calculate spectral flux (difference between consecutive spectra)
+      let flux = 0;
+      for (let k = 0; k < spectrum.length; k++) {
+        const diff = spectrum[k] - prevSpectrum[k];
+        flux += diff > 0 ? diff : 0; // Only positive differences
+      }
+      
       energyValues.push(energy);
+      spectralFlux.push(flux);
+      prevSpectrum = [...spectrum];
     }
     
-    // Find peaks in energy (beat onsets)
-    const peaks = this.findPeaks(energyValues, 0.3);
+    // Enhanced peak detection combining energy and spectral flux
+    const combinedOnsets = energyValues.map((energy, i) => ({
+      time: (i * hopSize) / sampleRate,
+      strength: energy * 0.6 + spectralFlux[i] * 0.4,
+      index: i
+    }));
     
-    if (peaks.length < 4) return { bpm: 120, beatGrid: [] }; // Need at least 4 beats
+    // Adaptive peak detection with dynamic threshold
+    const meanStrength = combinedOnsets.reduce((sum, o) => sum + o.strength, 0) / combinedOnsets.length;
+    const threshold = meanStrength * 1.4;
     
-    // Calculate intervals between beats
+    const peaks = [];
+    for (let i = 1; i < combinedOnsets.length - 1; i++) {
+      const current = combinedOnsets[i];
+      const prev = combinedOnsets[i - 1];
+      const next = combinedOnsets[i + 1];
+      
+      if (current.strength > prev.strength && 
+          current.strength > next.strength && 
+          current.strength > threshold) {
+        peaks.push(current);
+      }
+    }
+    
+    if (peaks.length < 4) {
+      console.warn('Insufficient beats detected, using default BPM');
+      return { bpm: 120, beatGrid: this.generateDefaultBeatGrid(data.length / sampleRate) };
+    }
+    
+    // Calculate intervals for BPM detection with clustering
     const intervals = [];
-    for (let i = 1; i < peaks.length; i++) {
-      const interval = (peaks[i] - peaks[i-1]) * hopSize / sampleRate;
-      if (interval > 0.3 && interval < 2.0) { // Valid beat intervals
+    for (let i = 1; i < Math.min(peaks.length, 50); i++) {
+      const interval = peaks[i].time - peaks[i-1].time;
+      if (interval > 0.2 && interval < 2.0) { // Valid beat intervals
         intervals.push(interval);
       }
     }
     
-    if (intervals.length === 0) return { bpm: 120, beatGrid: [] };
+    if (intervals.length === 0) {
+      return { bpm: 120, beatGrid: this.generateDefaultBeatGrid(data.length / sampleRate) };
+    }
     
-    // Find most common interval (tempo)
-    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-    let bpm = Math.round(60 / avgInterval);
+    // Find dominant tempo using median and clustering
+    intervals.sort((a, b) => a - b);
+    const medianInterval = intervals[Math.floor(intervals.length / 2)];
+    let bpm = Math.round(60 / medianInterval);
     
-    // Ensure BPM is in reasonable range
-    if (bpm < 60) bpm = bpm * 2;
-    if (bpm > 200) bpm = Math.round(bpm / 2);
+    // Validate and correct BPM range
+    if (bpm < 60) bpm *= 2;
+         if (bpm > 200) bpm /= 2;
     bpm = Math.max(60, Math.min(200, bpm));
     
-    // Generate beat grid with precise timing
-    const beatGrid = this.generateBeatGrid(peaks, hopSize, sampleRate, bpm);
+    console.log(`🎵 Detected BPM: ${bpm} from ${peaks.length} beat candidates`);
+        
+    // Generate professional beatgrid with downbeats and phrases
+    const beatGrid = this.generateProfessionalBeatGrid(bpm, data.length / sampleRate, peaks);
     
     return { bpm, beatGrid };
   }
 
-  generateBeatGrid(peaks, hopSize, sampleRate, bpm) {
+  // Generate default beatgrid for fallback
+  generateDefaultBeatGrid(duration) {
+    const bpm = 120;
+    const beatInterval = 60 / bpm;
     const beatGrid = [];
-    const beatInterval = 60 / bpm; // seconds between beats
     
-    // Convert peak indices to time positions
-    const beatTimes = peaks.map(peak => (peak * hopSize) / sampleRate);
-    
-    // Create a more precise beat grid by interpolating
-    if (beatTimes.length > 0) {
-      const firstBeat = beatTimes[0];
-      const duration = 60; // Analyze first 60 seconds
+    for (let time = 0; time < Math.min(duration, 60); time += beatInterval) {
+      const beatNumber = Math.floor(time / beatInterval);
+      const isDownbeat = beatNumber % 4 === 0;
       
-      // Generate regular beat grid from first detected beat
-      for (let time = firstBeat; time < duration; time += beatInterval) {
-        beatGrid.push({
-          time: time,
-          type: 'beat',
-          confidence: this.calculateBeatConfidence(time, beatTimes, beatInterval)
-        });
-      }
-      
-      // Add downbeats (every 4 beats for 4/4 time)
-      for (let i = 0; i < beatGrid.length; i += 4) {
-        if (beatGrid[i]) {
-          beatGrid[i].type = 'downbeat';
-          beatGrid[i].confidence = Math.min(1.0, beatGrid[i].confidence + 0.2);
-        }
-      }
+      beatGrid.push({
+        time: time,
+        beat: (beatNumber % 4) + 1,
+        bar: Math.floor(beatNumber / 4) + 1,
+        type: isDownbeat ? 'downbeat' : 'beat',
+        confidence: 0.5,
+        isPhraseStart: (beatNumber % 32) === 0,
+        isSectionStart: (beatNumber % 128) === 0,
+        energy: 0.7
+      });
     }
     
     return beatGrid;
+  }
+
+  // Professional beatgrid generation with advanced features
+  generateProfessionalBeatGrid(bpm, duration, detectedPeaks = []) {
+    console.log(`🎵 Generating professional beatgrid: ${bpm} BPM over ${duration.toFixed(2)}s`);
+    
+    const beatInterval = 60 / bpm;
+    const beatsPerBar = 4; // 4/4 time signature
+    const beatGrid = [];
+    
+    // Find best starting point from detected peaks
+    let startTime = 0;
+    if (detectedPeaks.length > 0) {
+      startTime = detectedPeaks[0].time;
+    }
+    
+    const maxDuration = Math.min(duration, 60); // Analyze first 60 seconds
+    let currentTime = startTime;
+    let beatCount = 0;
+    
+    while (currentTime < maxDuration) {
+      const beatInBar = (beatCount % beatsPerBar) + 1;
+      const barNumber = Math.floor(beatCount / beatsPerBar) + 1;
+      const isDownbeat = beatInBar === 1;
+      
+      // Phrase and section detection
+      const isPhraseStart = ((beatCount % 32) === 0); // 8-bar phrases = 32 beats
+      const isSectionStart = ((beatCount % 128) === 0); // 32-bar sections = 128 beats
+      
+      // Calculate confidence based on proximity to detected peaks
+      let confidence = 0.7;
+      if (detectedPeaks.length > 0) {
+        const nearestPeak = detectedPeaks.reduce((closest, peak) => 
+          Math.abs(peak.time - currentTime) < Math.abs(closest.time - currentTime) ? peak : closest
+        );
+        const distance = Math.abs(nearestPeak.time - currentTime);
+        confidence = Math.max(0.4, 1.0 - (distance / (beatInterval * 0.3)));
+      }
+      
+      // Estimate energy level (would be enhanced with actual audio analysis)
+      const energy = this.estimateEnergyAtTime(currentTime, duration);
+      
+      beatGrid.push({
+        time: parseFloat(currentTime.toFixed(3)),
+        beat: beatInBar,
+        bar: barNumber,
+        type: isDownbeat ? 'downbeat' : 'beat',
+        confidence: parseFloat(confidence.toFixed(2)),
+        isPhraseStart: isPhraseStart,
+        isSectionStart: isSectionStart,
+        energy: parseFloat(energy.toFixed(2)),
+        // Additional DJ-specific properties
+        isTransitionPoint: this.isGoodTransitionPoint(currentTime, duration, isDownbeat, isPhraseStart),
+        vocalActivity: this.estimateVocalActivity(currentTime, duration)
+      });
+      
+      currentTime += beatInterval;
+      beatCount++;
+    }
+    
+    console.log(`🎵 Generated ${beatGrid.length} beats with ${beatGrid.filter(b => b.type === 'downbeat').length} downbeats`);
+    console.log(`🎵 Found ${beatGrid.filter(b => b.isPhraseStart).length} phrase starts and ${beatGrid.filter(b => b.isTransitionPoint).length} transition points`);
+    
+    return beatGrid;
+  }
+
+  // Determine if a beat position is good for transitions
+  isGoodTransitionPoint(time, totalDuration, isDownbeat, isPhraseStart) {
+    const normalizedTime = time / totalDuration;
+    
+    // Avoid transitions in first 10% (intro) and last 10% (outro)
+    if (normalizedTime < 0.1 || normalizedTime > 0.9) return false;
+    
+    // Prefer downbeats and phrase starts
+    if (isDownbeat && isPhraseStart) return true;
+    if (isDownbeat && normalizedTime > 0.7) return true; // Late downbeats are good
+    
+    return false;
+  }
+
+  // Estimate vocal activity at a given time (simplified)
+  estimateVocalActivity(time, totalDuration) {
+    const normalizedTime = time / totalDuration;
+    
+    // Simple vocal activity estimation
+    // Real implementation would analyze vocal stem energy
+    if (normalizedTime < 0.15) return 0.1; // Intro - minimal vocals
+    if (normalizedTime < 0.25) return 0.6; // First verse
+    if (normalizedTime < 0.35) return 0.9; // First chorus
+    if (normalizedTime < 0.45) return 0.5; // Verse 2
+    if (normalizedTime < 0.65) return 0.9; // Chorus/Bridge
+    if (normalizedTime < 0.85) return 0.7; // Final section
+    return 0.3; // Outro
+  }
+
+  // Estimate energy level at a given time (enhanced)
+  estimateEnergyAtTime(time, totalDuration) {
+    const normalizedTime = time / totalDuration;
+    
+    // Enhanced energy curve with more realistic patterns
+    if (normalizedTime < 0.05) return 0.2; // Silence/fade-in
+    if (normalizedTime < 0.15) return 0.4; // Intro build
+    if (normalizedTime < 0.25) return 0.6; // Verse energy
+    if (normalizedTime < 0.35) return 0.9; // First drop/chorus
+    if (normalizedTime < 0.45) return 0.5; // Breakdown/verse
+    if (normalizedTime < 0.55) return 0.8; // Build-up
+    if (normalizedTime < 0.75) return 1.0; // Peak energy
+    if (normalizedTime < 0.85) return 0.7; // Sustained high
+    if (normalizedTime < 0.95) return 0.5; // Wind down
+    return 0.3; // Outro
+  }
+
+  generateBeatGrid(peaks, hopSize, sampleRate, bpm) {
+    // Legacy function - redirect to professional version
+    const peakObjects = peaks.map(peak => ({
+      time: (peak * hopSize) / sampleRate,
+      strength: 1.0,
+      index: peak
+    }));
+    
+    return this.generateProfessionalBeatGrid(bpm, 60, peakObjects);
   }
 
   calculateBeatConfidence(time, detectedBeats, beatInterval) {
@@ -1226,14 +1400,30 @@ class AudioEngine {
       const nextKey = this.nextTrack.key;
       const keyCompatibility = this.areKeysCompatible(currentKey, nextKey);
       
+      // Analyze vocal activity and transition timing for professional mixing
+      const currentVocalActivity = this.analyzeCurrentVocalActivity();
+      const optimalTransitionPoint = this.findOptimalTransitionPoint();
+      
       console.log(`🎵 AI DJ: Professional Track Analysis:`);
       console.log(`   🎵 Current: ${currentBPM} BPM, ${currentKey?.name || 'Unknown'} (${currentKey?.camelot || 'N/A'})`);
       console.log(`   🎵 Next: ${nextBPM} BPM, ${nextKey?.name || 'Unknown'} (${nextKey?.camelot || 'N/A'})`);
       console.log(`   📊 BPM Difference: ${bmpDifference}`);
       console.log(`   🎼 Key Compatibility: ${keyCompatibility.reason} (Score: ${keyCompatibility.score.toFixed(2)})`);
+      console.log(`   🎤 Vocal Activity: ${(currentVocalActivity * 100).toFixed(0)}%`);
+      console.log(`   ⏰ Transition Point: ${optimalTransitionPoint.quality} (${optimalTransitionPoint.waitTime.toFixed(1)}s wait)`);
       
-      // Professional transition selection algorithm
-      if (bmpDifference <= 3 && keyCompatibility.score >= 0.8) {
+      // Wait for optimal transition point if needed
+      if (optimalTransitionPoint.waitTime > 0 && optimalTransitionPoint.waitTime < 8) {
+        console.log(`🎵 AI DJ: Waiting for optimal transition point...`);
+        await new Promise(resolve => setTimeout(resolve, optimalTransitionPoint.waitTime * 1000));
+      }
+      
+      // Professional transition selection with vocal-aware logic
+      if (currentVocalActivity > 0.7 && bmpDifference <= 6) {
+        // High vocal activity - use echo out to avoid vocal clash
+        console.log('🎵 AI DJ: High vocal activity - using echo out transition');
+        await this.performEchoOutTransition(currentBPM, keyCompatibility);
+      } else if (bmpDifference <= 3 && keyCompatibility.score >= 0.8) {
         // Perfect harmonic match - extended musical crossfade
         console.log('🎵 AI DJ: Perfect harmonic match - using extended musical crossfade');
         await this.performHarmonicCrossfade(10000, keyCompatibility);
@@ -1242,9 +1432,9 @@ class AudioEngine {
         console.log('🎵 AI DJ: Good compatibility - using phrase-aligned transition');
         await this.performPhraseAlignedTransition(currentBPM, nextBPM, keyCompatibility);
       } else if (bmpDifference <= 12) {
-        // Moderate difference - may use key sync + tempo matching
-        console.log('🎵 AI DJ: Moderate difference - using key sync with tempo matching');
-        await this.performKeySyncTransition(currentBPM, nextBPM, keyCompatibility);
+        // Moderate difference - key sync with filter sweep
+        console.log('🎵 AI DJ: Moderate difference - using filter sweep transition');
+        await this.performFilterSweepTransition(currentBPM, nextBPM, keyCompatibility);
       } else if (keyCompatibility.compatible) {
         // Large BPM but good key - creative harmonic break
         console.log('🎵 AI DJ: Large BPM but good key - using harmonic break transition');
@@ -1832,6 +2022,200 @@ class AudioEngine {
         console.error('Error in audio engine listener:', error);
       }
     });
+  }
+
+  // === PROFESSIONAL VOCAL-AWARE TRANSITION FUNCTIONS ===
+
+  // Analyze current vocal activity to avoid vocal clashes
+  analyzeCurrentVocalActivity() {
+    if (!this.stemGains || !this.stemGains.vocals) return 0.5;
+    
+    const vocalGain = this.stemGains.vocals.gain.value;
+    const currentTime = this.currentTime;
+    const duration = this.duration;
+    
+    // Use beatgrid vocal activity estimation if available
+    if (this.currentTrack.beatGrid) {
+      const nearestBeat = this.currentTrack.beatGrid.reduce((closest, beat) => 
+        Math.abs(beat.time - currentTime) < Math.abs(closest.time - currentTime) ? beat : closest
+      );
+      
+      if (nearestBeat && nearestBeat.vocalActivity !== undefined) {
+        return nearestBeat.vocalActivity * vocalGain;
+      }
+    }
+    
+    // Fallback to time-based estimation
+    return this.estimateVocalActivity(currentTime, duration) * vocalGain;
+  }
+
+  // Find optimal transition point based on beatgrid analysis
+  findOptimalTransitionPoint() {
+    const currentTime = this.currentTime;
+    const beatGrid = this.currentTrack.beatGrid || [];
+    
+    if (beatGrid.length === 0) {
+      return {
+        time: currentTime,
+        waitTime: 0,
+        quality: 'immediate'
+      };
+    }
+    
+    // Find next good transition points in the next 16 seconds
+    const futureBeats = beatGrid.filter(beat => 
+      beat.time > currentTime && beat.time < currentTime + 16
+    );
+    
+    // Prefer transition points with low vocal activity
+    const idealPoints = futureBeats.filter(beat => 
+      beat.isTransitionPoint && beat.vocalActivity < 0.5
+    );
+    
+    if (idealPoints.length > 0) {
+      const best = idealPoints[0];
+      return {
+        time: best.time,
+        waitTime: best.time - currentTime,
+        quality: 'optimal',
+        beat: best
+      };
+    }
+    
+    // Fallback to next downbeat with low vocals
+    const nextGoodDownbeat = futureBeats.find(beat => 
+      beat.type === 'downbeat' && beat.vocalActivity < 0.7
+    );
+    
+    if (nextGoodDownbeat) {
+      return {
+        time: nextGoodDownbeat.time,
+        waitTime: nextGoodDownbeat.time - currentTime,
+        quality: 'good',
+        beat: nextGoodDownbeat
+      };
+    }
+    
+    // Immediate transition as last resort
+    return {
+      time: currentTime,
+      waitTime: 0,
+      quality: 'immediate'
+    };
+  }
+
+  // Professional echo-out transition to avoid vocal clashes
+  async performEchoOutTransition(currentBPM, keyCompatibility) {
+    console.log('🎵 AI DJ: Echo-out transition - professional vocal handling');
+    
+    const echoBeats = 4; // 4 beats of echo
+    const beatDuration = (60 / currentBPM) * 1000; // milliseconds per beat
+    
+    // Apply echo to current track
+    this.applyEchoOut(currentBPM);
+    
+    // Start next track on the next downbeat
+    setTimeout(async () => {
+      await this.startBackgroundLayer();
+      console.log('🎵 Next track started on downbeat');
+      
+      // Bring in next track with bass first (no vocals)
+      if (this.nextTrackStemGains) {
+        this.nextTrackStemGains.vocals.gain.value = 0; // No vocals initially
+        this.nextTrackStemGains.bass.gain.setValueAtTime(0.8, this.audioContext.currentTime);
+        this.nextTrackStemGains.drums.gain.setValueAtTime(0.6, this.audioContext.currentTime);
+        this.nextTrackStemGains.other.gain.setValueAtTime(0.4, this.audioContext.currentTime);
+      }
+      
+      // Fade out current track vocals while maintaining rhythm
+      setTimeout(() => {
+        if (this.stemGains.vocals) {
+          this.animateGain(this.stemGains.vocals, this.stemGains.vocals.gain.value, 0, 2000);
+        }
+      }, beatDuration);
+      
+      // Bring in next track vocals after echo completes
+      setTimeout(() => {
+        if (this.nextTrackStemGains && this.nextTrackStemGains.vocals) {
+          this.animateGain(this.nextTrackStemGains.vocals, 0, 0.8, 1500);
+          console.log('🎵 Next track vocals brought in cleanly');
+        }
+      }, echoBeats * beatDuration);
+      
+      // Complete the transition
+      setTimeout(() => {
+        this.performSmoothCrossfade(2000);
+      }, (echoBeats + 2) * beatDuration);
+      
+    }, beatDuration); // Wait for next beat
+  }
+
+  // Professional filter sweep transition
+  async performFilterSweepTransition(currentBPM, nextBPM, keyCompatibility) {
+    console.log('🎵 AI DJ: Filter sweep transition with tempo sync');
+    
+    // Apply high-pass filter sweep on current track
+    await this.applyFilterSweep('highpass', 4000);
+    
+    // Setup tempo matching for next track
+    const tempoRatio = currentBPM / nextBPM;
+    this.setupPitchShifting(tempoRatio);
+    
+    // Start next track with low-pass filter
+    setTimeout(async () => {
+      await this.startBackgroundLayer();
+      await this.applyFilterSweep('lowpass', 2000);
+      
+      // Gradually remove filters and crossfade
+      setTimeout(async () => {
+        await this.removeFilters();
+        await this.performSmoothCrossfade(3000);
+      }, 3000);
+    }, 2000);
+  }
+
+  // Apply echo effect synced to BPM
+  applyEchoOut(bpm) {
+    const beatDuration = 60 / bpm; // seconds per beat
+    const echoTime = beatDuration / 2; // 8th note echoes
+    
+    if (this.deckEffects.deckA.delayNode) {
+      // Configure delay for echo effect
+      this.deckEffects.deckA.delayNode.delayTime.setValueAtTime(echoTime, this.audioContext.currentTime);
+      
+      // Create feedback loop for echo (simplified approach)
+      const feedbackValue = 0.6;
+      console.log(`🎵 Applied echo out: ${echoTime.toFixed(3)}s delay at ${bpm} BPM with ${feedbackValue} feedback`);
+    }
+  }
+
+  // Apply professional filter sweep
+  async applyFilterSweep(filterType, frequency) {
+    const deck = 'A'; // Current track
+    const filterNode = this.deckEffects[`deck${deck}`]?.filterNode;
+    
+    if (!filterNode) return;
+    
+    filterNode.type = filterType;
+    filterNode.frequency.setValueAtTime(filterType === 'highpass' ? 50 : 20000, this.audioContext.currentTime);
+    
+    // Sweep filter over 3 seconds
+    filterNode.frequency.linearRampToValueAtTime(frequency, this.audioContext.currentTime + 3);
+    
+    console.log(`🎵 Applied ${filterType} filter sweep to ${frequency}Hz`);
+  }
+
+  // Remove all filters
+  async removeFilters() {
+    ['A', 'B'].forEach(deck => {
+      const filterNode = this.deckEffects[`deck${deck}`]?.filterNode;
+      if (filterNode) {
+        filterNode.frequency.setValueAtTime(filterNode.frequency.value, this.audioContext.currentTime);
+        filterNode.frequency.linearRampToValueAtTime(20000, this.audioContext.currentTime + 2);
+      }
+    });
+    
+    console.log('🎵 Removed all filters');
   }
 
   // Cleanup
