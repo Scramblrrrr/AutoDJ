@@ -1621,44 +1621,51 @@ class AudioEngine {
     }
   }
 
-  async performSmoothCrossfade() {
-    // Start playing next track in sync
-    const nextTrackStartTime = this.audioContext.currentTime + 0.1;
+  async performSmoothCrossfade(duration) {
+    // Determine fade duration dynamically if not provided
+    const bpm = this.currentTrack?.bpm || 120;
+    const defaultBeats = 8;
+    const fadeDuration = duration || (60 / bpm) * defaultBeats * 1000;
+
+    // Optionally wait until the next phrase boundary for a musical start
+    const wait = this.findNextPhraseBoundary(bpm) - this.currentTime;
+    if (wait > 0 && wait < 8) {
+      await new Promise(res => setTimeout(res, wait * 1000));
+    }
+
+    // Start playing next track slightly ahead to ensure sync
+    const nextTrackStartTime = this.audioContext.currentTime + 0.05;
     this.startNextTrackPlayback(nextTrackStartTime);
-    
-    // 8-second professional crossfade
-    const fadeDuration = 8000;
-    const steps = 100;
-    const stepDuration = fadeDuration / steps;
-    
-    let currentStep = 0;
-    
-    const fadeInterval = setInterval(() => {
-      const progress = currentStep / steps;
-      
-      // Professional crossfade curve (logarithmic for natural sound)
-      const currentTrackGain = Math.cos(progress * Math.PI / 2) * 0.8;
-      const nextTrackGain = Math.sin(progress * Math.PI / 2) * 0.8;
-      
-      // Apply crossfade
-      this.trackAGain.gain.value = currentTrackGain;
-      this.trackBGain.gain.value = nextTrackGain;
-      
-      // Update UI in real-time to show live crossfade position
+
+    const fadeStart = nextTrackStartTime;
+    const fadeEnd = fadeStart + fadeDuration / 1000;
+
+    // Pre-compute equal-power crossfade curves
+    const steps = 50;
+    const curveA = new Float32Array(steps);
+    const curveB = new Float32Array(steps);
+    for (let i = 0; i < steps; i++) {
+      const p = i / (steps - 1);
+      curveA[i] = Math.cos(p * Math.PI / 2);
+      curveB[i] = Math.sin(p * Math.PI / 2);
+    }
+
+    this.trackAGain.gain.cancelScheduledValues(fadeStart);
+    this.trackBGain.gain.cancelScheduledValues(fadeStart);
+    this.trackAGain.gain.setValueCurveAtTime(curveA, fadeStart, fadeDuration / 1000);
+    this.trackBGain.gain.setValueCurveAtTime(curveB, fadeStart, fadeDuration / 1000);
+
+    const animate = () => {
+      const progress = Math.min((this.audioContext.currentTime - fadeStart) / (fadeDuration / 1000), 1);
       this.updateCrossfaderUI(progress);
-      
-      // Log progress every 20% to reduce console spam
-      const progressPercent = Math.round(progress * 100);
-      if (progressPercent % 20 === 0) {
-        console.log(`🎵 AI DJ: Crossfade progress: ${progressPercent}%`);
-      }
-      
-      currentStep++;
-      if (currentStep >= steps) {
-        clearInterval(fadeInterval);
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
         this.completeTransition();
       }
-    }, stepDuration);
+    };
+
+    requestAnimationFrame(animate);
   }
 
   async performTempoMatchedTransition() {
@@ -3447,4 +3454,4 @@ class AudioEngine {
 
 // Create singleton instance
 const audioEngine = new AudioEngine();
-export default audioEngine; 
+export default audioEngine;
