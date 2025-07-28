@@ -30,6 +30,7 @@ print("PROGRESS: numpy loaded")
 sys.stdout.flush()
 
 from typing import Dict, List, Tuple
+import re
 import logging
 
 print("PROGRESS: All imports completed successfully!")
@@ -172,6 +173,12 @@ class StemProcessor:
         except Exception as e:
             logger.error(f"Error getting audio info for {file_path}: {str(e)}")
             return {}
+
+    def sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename to be safe for filesystem."""
+        filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        filename = re.sub(r'\s+', ' ', filename).strip()
+        return filename[:200]
     
     def process_stems(self, input_file: str, output_dir: str) -> Dict:
         """
@@ -202,9 +209,10 @@ class StemProcessor:
             
             print("PROGRESS: File validation passed, creating output directory")
             sys.stdout.flush()
-            
-            # Create output directory
-            os.makedirs(output_dir, exist_ok=True)
+
+            track_name = self.sanitize_filename(Path(input_file).stem)
+            target_dir = Path(output_dir) / track_name
+            os.makedirs(target_dir, exist_ok=True)
             
             # Handle webm files - convert to wav first
             actual_input_file = input_file
@@ -344,7 +352,7 @@ class StemProcessor:
                     if os.path.exists(source_path):
                         # Create organized output path using original filename
                         output_filename = f"{original_track_name}_{stem}.wav"
-                        output_path = os.path.join(output_dir, output_filename)
+                        output_path = os.path.join(target_dir, output_filename)
                         
                         # Copy file
                         shutil.copy2(source_path, output_path)
@@ -371,16 +379,17 @@ class StemProcessor:
                     'timestamp': str(np.datetime64('now'))
                 }
                 
-                metadata_path = os.path.join(output_dir, f"{original_track_name}_metadata.json")
+                metadata_path = os.path.join(target_dir, f"{original_track_name}_metadata.json")
                 with open(metadata_path, 'w') as f:
                     json.dump(metadata, f, indent=2)
-                
-                logger.info(f"Processing completed successfully. Stems saved to: {output_dir}")
+
+                logger.info(f"Processing completed successfully. Stems saved to: {target_dir}")
                 
                 return {
                     'success': True,
                     'stems': stem_files,
                     'metadata': metadata,
+                    'output_dir': str(target_dir),
                     'message': f"Successfully processed {len(stem_files)} stems from {Path(input_file).name}"
                 }
                 

@@ -181,16 +181,21 @@ class MusicDownloader:
             logger.info(f"Video info: {video_info['title']} by {video_info['artist']}")
             print(f"PROGRESS: 10% - Found: {video_info['title']}")
             
-            # Set up filename
+            # Set up filename and hierarchical directories
             if custom_filename:
                 filename = self.sanitize_filename(custom_filename)
             else:
                 filename = self.sanitize_filename(f"{video_info['artist']} - {video_info['title']}")
-            
+
+            artist_dir = self.sanitize_filename(video_info.get('artist', 'Unknown Artist'))
+            title_dir = self.sanitize_filename(video_info.get('title', 'Unknown Title'))
+            target_dir = self.output_dir / artist_dir / title_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+
             # Update yt-dlp options with progress hook
             download_opts = self.ydl_opts.copy()
             download_opts['progress_hooks'] = [self.download_progress_hook]
-            download_opts['outtmpl'] = str(self.output_dir / f"{filename}.%(ext)s")
+            download_opts['outtmpl'] = str(target_dir / f"{filename}.%(ext)s")
             
             print("PROGRESS: 15% - Starting download...")
             
@@ -209,11 +214,11 @@ class MusicDownloader:
             
             # Find the downloaded file and ensure it exists
             output_pattern = f"{filename}.{self.format}"
-            output_file = self.output_dir / output_pattern
+            output_file = target_dir / output_pattern
             
             # Sometimes the extension might be different, so search for files
             if not output_file.exists():
-                possible_files = list(self.output_dir.glob(f"{filename}.*"))
+                possible_files = list(target_dir.glob(f"{filename}.*"))
                 if possible_files:
                     output_file = possible_files[0]
                     logger.info(f"Found alternative file: {output_file}")
@@ -221,10 +226,10 @@ class MusicDownloader:
                     # Search for any files with similar names (in case of title differences)
                     similar_files = []
                     # Try with video title
-                    similar_files.extend(list(self.output_dir.glob(f"*{video_info['title'][:20]}*")))
+                    similar_files.extend(list(target_dir.glob(f"*{video_info['title'][:20]}*")))
                     # Try with sanitized filename
                     base_name = filename.split(' - ')[0] if ' - ' in filename else filename[:20]
-                    similar_files.extend(list(self.output_dir.glob(f"*{base_name}*")))
+                    similar_files.extend(list(target_dir.glob(f"*{base_name}*")))
                     
                     if similar_files:
                         # Pick the most recent file
@@ -254,6 +259,7 @@ class MusicDownloader:
                     'format': self.format,
                     'output_dir': str(self.output_dir)
                 },
+                'final_directory': str(target_dir),
                 'output_file': str(output_file),
                 'file_size_mb': file_size / (1024 * 1024)
             }

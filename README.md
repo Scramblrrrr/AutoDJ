@@ -127,6 +127,7 @@ npm run electron-pack
 - **Quality Selection**: Choose audio quality from 128kbps to 320kbps
 - **Format Options**: Download in MP3, WAV, FLAC, or M4A format
 - **Auto Processing**: Optionally process stems immediately after download
+- **Organized Folders**: Downloads are saved in `<Artist>/<Title>` folders within your chosen directory
 
 ## Technical Architecture
 
@@ -147,6 +148,7 @@ npm run electron-pack
 2. **Stem Separation**: Use Demucs to separate audio sources
 3. **Metadata Extraction**: Extract audio properties and tags
 4. **File Organization**: Save processed stems with proper naming
+   in a subfolder named after each track
 5. **Quality Control**: Verify output quality and completeness
 
 ## Configuration
