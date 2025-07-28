@@ -159,7 +159,7 @@ class FileManager {
     }
   }
 
-  async downloadAudio(url, outputDir = null) {
+  async downloadAudio(url, outputDir = null, downloadId = null) {
     const actualOutputDir = outputDir || this.defaultPaths.downloads;
     
     if (!ipcRenderer) {
@@ -181,7 +181,7 @@ class FileManager {
     }
 
     try {
-      const result = await ipcRenderer.invoke('download-audio', url, actualOutputDir);
+      const result = await ipcRenderer.invoke('download-audio', url, actualOutputDir, downloadId);
       
       // The Python script returns success info via stdout, but we need to parse it properly
       if (result && typeof result === 'string' && result.includes('SUCCESS:')) {
