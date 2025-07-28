@@ -83,7 +83,62 @@ AutoDJ keeps music organized under `~/Music/AutoDJ/Library`:
 - **Stems**: extracted stems are saved in `Library/Stems`
 - **Temp**: temporary working files are placed in `Temp`
 
+
+## Usage
+
+### Getting Started
+
+1. **Launch AutoDJ** and you'll see the Dashboard with an overview of your music library
+2. **Upload Music**: Go to the "Upload & Process" tab to add your music files
+3. **Process Stems**: Click "Process All Files" to separate your tracks into stems
+4. **Start DJing**: Switch to the "AI|DJ" tab to create queues and start mixing
+
+### Dashboard
+- View statistics about your music library
+- See processing status and active sessions
+- Quick access to main features
+
+### AI|DJ Studio
+- **Player Controls**: Play, pause, skip, and control volume
+- **Stem Visualization**: Real-time stem level display and individual volume controls
+- **Queue Management**: Add tracks, reorder queue, and manage upcoming songs
+- **Auto Mix**: Let the AI automatically transition between tracks
+
+### Upload & Process
+- **Drag & Drop**: Simply drag music files into the upload area
+- **Batch Processing**: Process multiple files at once
+- **Progress Tracking**: Monitor processing status for each file
+- **Format Support**: Accepts MP3, WAV, FLAC, M4A, and AAC files (WAV preferred for analysis)
+
+### Music Downloader
+- **URL Input**: Paste YouTube or SoundCloud links
+- **Quality Selection**: Choose audio quality from 128kbps to 320kbps
+- **Format Options**: Download in MP3, WAV, FLAC, or M4A format (WAV is used by default)
+ - **Manual Processing**: After download, process stems from the **Upload & Process** tab
+
+## Technical Architecture
+
+### Frontend (Electron + React)
+- **Electron**: Cross-platform desktop application framework
+- **React**: Modern UI library with hooks and functional components
+- **Styled Components**: CSS-in-JS for dynamic styling
+- **Lucide React**: Beautiful, customizable icons
+
+### Backend (Python)
+- **Demucs**: Meta's state-of-the-art music source separation
+- **yt-dlp**: Robust YouTube and SoundCloud downloader
+- **librosa**: Audio analysis and feature extraction
+- **PyTorch**: Deep learning framework for AI models
+
+### Audio Processing Pipeline
+1. **Input Validation**: Check file format and integrity
+2. **Stem Separation**: Use Demucs to separate audio sources
+3. **Metadata Extraction**: Extract audio properties and tags
+4. **File Organization**: Save processed stems with proper naming
+5. **Quality Control**: Verify output quality and completeness
+=======
 Original files are never deleted automatically.
+
 
 ## Configuration
 

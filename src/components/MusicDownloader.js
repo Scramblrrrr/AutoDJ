@@ -964,7 +964,7 @@ function MusicDownloader() {
               </div>
               <div className="download-details">
                 <h4>{download.title}</h4>
-                <p>{download.artist} • {download.duration} • {quality} kbps {format.toUpperCase()}</p>
+                <p>{download.artist} • {download.duration} • {download.quality} kbps {download.format.toUpperCase()}</p>
                 <p style={{ fontSize: '11px', color: '#666' }}>
                   {download.url.length > 60 ? download.url.substring(0, 60) + '...' : download.url}
                 </p>
