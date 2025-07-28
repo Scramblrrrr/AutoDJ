@@ -29,6 +29,13 @@ import soundfile as sf
 import numpy as np
 from typing import Dict
 
+# Optional conversion using pydub if available
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except Exception:
+    PYDUB_AVAILABLE = False
+
 print("PROGRESS: Demucs libraries loaded successfully!", flush=True)
 sys.stdout.flush()
 
@@ -47,10 +54,26 @@ class DemucsSimpleProcessor:
         self.supported_formats = ['.mp3', '.wav', '.flac', '.m4a', '.aac']
         print("PROGRESS: DemucsSimpleProcessor initialized", flush=True)
         sys.stdout.flush()
-        
+
     def is_supported_format(self, file_path: str) -> bool:
         """Check if the file format is supported."""
         return Path(file_path).suffix.lower() in self.supported_formats
+
+    def convert_to_wav(self, input_file: str, output_file: str, sample_rate: int = 44100) -> bool:
+        """Convert any supported audio file to WAV for consistent processing."""
+        try:
+            if PYDUB_AVAILABLE:
+                audio = AudioSegment.from_file(input_file)
+                audio = audio.set_frame_rate(sample_rate).set_channels(2)
+                audio.export(output_file, format="wav")
+                return os.path.exists(output_file)
+            else:
+                y, sr = librosa.load(input_file, sr=sample_rate, mono=False)
+                sf.write(output_file, y.T if y.ndim > 1 else y, sample_rate)
+                return os.path.exists(output_file)
+        except Exception as e:
+            logger.error(f"Conversion to wav failed for {input_file}: {e}")
+            return False
     
     def run_demucs_separation(self, input_file: str, temp_dir: str) -> bool:
         """
@@ -66,8 +89,6 @@ class DemucsSimpleProcessor:
                 '-n', 'htdemucs',  # Use htdemucs model (best quality)
                 '-o', temp_dir,
                 '--filename', '{track}/{stem}.{ext}',
-                '--mp3',  # Output as MP3 for smaller files
-                '--mp3-bitrate', '320',  # High quality MP3
                 input_file
             ]
             
@@ -260,6 +281,7 @@ class DemucsSimpleProcessor:
         """
         Process audio file using Demucs with robust error handling.
         """
+        temp_wav = None
         try:
             print("PROGRESS: Entered Demucs process_stems method", flush=True)
             sys.stdout.flush()
@@ -296,16 +318,28 @@ class DemucsSimpleProcessor:
                 audio_info = 0
                 sample_rate = 44100
             
+            # Convert to WAV for consistent processing if needed
+            actual_input_file = input_file
+            temp_wav = None
+            if Path(input_file).suffix.lower() != '.wav' or sample_rate != 44100:
+                print("PROGRESS: 15% - Converting input to WAV...", flush=True)
+                sys.stdout.flush()
+                temp_wav = os.path.join(tempfile.gettempdir(), f"converted_{Path(input_file).stem}.wav")
+                if self.convert_to_wav(input_file, temp_wav):
+                    actual_input_file = temp_wav
+                else:
+                    print("PROGRESS: Conversion failed, using original file", flush=True)
+
             print("PROGRESS: 20% - Creating temporary workspace...", flush=True)
             sys.stdout.flush()
-            
+
             # Create temporary directory for Demucs
             with tempfile.TemporaryDirectory() as temp_dir:
                 print(f"PROGRESS: Temporary directory: {temp_dir}", flush=True)
                 sys.stdout.flush()
-                
+
                 # Run Demucs separation
-                success = self.run_demucs_separation(input_file, temp_dir)
+                success = self.run_demucs_separation(actual_input_file, temp_dir)
                 
                 if not success:
                     raise RuntimeError("Demucs separation failed")
@@ -344,7 +378,7 @@ class DemucsSimpleProcessor:
                 
                 logger.info(f"Demucs processing completed successfully: {len(enhanced_stems)} stems created")
                 return result
-        
+
         except Exception as e:
             error_msg = f"Error processing stems: {str(e)}"
             logger.error(error_msg)
@@ -355,6 +389,13 @@ class DemucsSimpleProcessor:
                 'error': error_msg,
                 'input_file': input_file
             }
+
+        finally:
+            if temp_wav and os.path.exists(temp_wav):
+                try:
+                    os.remove(temp_wav)
+                except Exception:
+                    pass
 
 def main():
     """Main function to run when script is called directly."""
