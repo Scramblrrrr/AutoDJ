@@ -818,7 +818,8 @@ const AIDJ = () => {
       const result = await autoDJRef.current.executeQuickTransition();
       
       if (result && result.success) {
-        setTransitionStatus('Quick transition completed successfully!');
+        const message = result.message || 'Quick transition completed successfully!';
+        setTransitionStatus(message);
         setTimeout(() => setTransitionStatus(null), 3000);
       } else if (result && result.error) {
         setTransitionStatus(`Quick transition failed: ${result.error}`);

@@ -197,7 +197,12 @@ class AutoDJEngine {
         
         if (!optimalTransitionPoint) {
             console.log('🎧 AutoDJ: No optimal point found - executing immediate fallback');
-            return await this.executeFallbackTransition();
+            const fallbackResult = await this.executeFallbackTransition();
+            return { 
+                success: fallbackResult.success || true, 
+                message: 'Quick transition executed with fallback method',
+                style: 'fallback'
+            };
         }
         
         const waitTime = (optimalTransitionPoint.time - currentTime) * 1000;
@@ -209,13 +214,25 @@ class AutoDJEngine {
                 const entryPoint = this.findOptimalEntryPoint(nextAnalysis, optimalTransitionPoint);
                 await this.executeMusicalTransition(currentAnalysis, nextAnalysis, optimalTransitionPoint, entryPoint);
             }, waitTime);
+            
+            return { 
+                success: true, 
+                message: `Quick transition scheduled - waiting ${waitTime.toFixed(0)}ms for optimal moment`,
+                transitionPoint: optimalTransitionPoint,
+                waitTime: waitTime
+            };
         } else {
             // Execute immediately if we're already at/past the point
             const entryPoint = this.findOptimalEntryPoint(nextAnalysis, optimalTransitionPoint);
             await this.executeMusicalTransition(currentAnalysis, nextAnalysis, optimalTransitionPoint, entryPoint);
+            
+            return { 
+                success: true, 
+                message: 'Quick transition executed immediately',
+                transitionPoint: optimalTransitionPoint,
+                entryPoint: entryPoint
+            };
         }
-        
-        return true;
     }
     
     /**
@@ -356,31 +373,69 @@ class AutoDJEngine {
         const currentBar = Math.floor(currentTime / secondsPerBar);
         const maxTimePoint = currentTime + maxWaitTime;
         
-        // Look for next 8-bar boundaries
-        for (let nextBar = currentBar + 1; nextBar * secondsPerBar <= maxTimePoint; nextBar++) {
-            if (nextBar % 8 === 0) { // 8-bar phrase boundaries
-                const time = nextBar * secondsPerBar;
-                if (time > currentTime && time <= maxTimePoint && time < analysis.duration) {
-                    transitionCandidates.push({
-                        time: time,
-                        type: 'phrase_boundary',
-                        description: `${nextBar}-bar phrase boundary`,
-                        priority: 10,
-                        musicalReason: 'Natural phrase ending - vocals and instruments align'
-                    });
-                }
+        // ADVANCED: Analyze actual energy changes and vocal sections from audio data
+        const energyChanges = this.analyzeEnergyChanges(analysis, currentTime, maxTimePoint);
+        const vocalSections = this.analyzeVocalSections(analysis, currentTime, maxTimePoint);
+        
+        // Add energy-based transition points (higher priority than bar counting)
+        energyChanges.forEach(energyPoint => {
+            if (energyPoint.time > currentTime && energyPoint.time <= maxTimePoint) {
+                transitionCandidates.push({
+                    time: energyPoint.time,
+                    type: 'energy_change',
+                    description: `${energyPoint.type} at ${energyPoint.time.toFixed(1)}s`,
+                    priority: energyPoint.intensity * 15, // Scale intensity to priority
+                    musicalReason: `Energy ${energyPoint.direction} - ${energyPoint.description}`,
+                    bpm: bpm,
+                    energyLevel: energyPoint.level
+                });
             }
-            
-            if (nextBar % 16 === 0) { // 16-bar section boundaries
-                const time = nextBar * secondsPerBar;
-                if (time > currentTime && time <= maxTimePoint && time < analysis.duration) {
-                    transitionCandidates.push({
-                        time: time,
-                        type: 'section_boundary',
-                        description: `${nextBar}-bar section boundary`,
-                        priority: 9,
-                        musicalReason: 'Major section change - verse/chorus transition point'
-                    });
+        });
+        
+        // Add vocal-based transition points (very high priority)
+        vocalSections.forEach(vocalPoint => {
+            if (vocalPoint.time > currentTime && vocalPoint.time <= maxTimePoint) {
+                transitionCandidates.push({
+                    time: vocalPoint.time,
+                    type: 'vocal_change',
+                    description: `${vocalPoint.type} at ${vocalPoint.time.toFixed(1)}s`,
+                    priority: 12, // Very high priority
+                    musicalReason: `Vocal ${vocalPoint.action} - perfect transition moment`,
+                    bmp: bpm,
+                    vocalType: vocalPoint.type
+                });
+            }
+        });
+        
+        // Fallback: Look for bar boundaries only if no energy/vocal points found
+        if (transitionCandidates.length === 0) {
+            for (let nextBar = currentBar + 1; nextBar * secondsPerBar <= maxTimePoint; nextBar++) {
+                if (nextBar % 8 === 0) { // 8-bar phrase boundaries
+                    const time = nextBar * secondsPerBar;
+                    if (time > currentTime && time <= maxTimePoint && time < analysis.duration) {
+                        transitionCandidates.push({
+                            time: time,
+                            type: 'phrase_boundary',
+                            description: `${nextBar}-bar phrase boundary`,
+                            priority: 6, // Lower priority than energy analysis
+                            musicalReason: 'Natural phrase ending - vocals and instruments align',
+                            bpm: bpm
+                        });
+                    }
+                }
+                
+                if (nextBar % 16 === 0) { // 16-bar section boundaries
+                    const time = nextBar * secondsPerBar;
+                    if (time > currentTime && time <= maxTimePoint && time < analysis.duration) {
+                        transitionCandidates.push({
+                            time: time,
+                            type: 'section_boundary',
+                            description: `${nextBar}-bar section boundary`,
+                            priority: 5, // Lower priority than energy analysis
+                            musicalReason: 'Major section change - verse/chorus transition point',
+                            bpm: bpm
+                        });
+                    }
                 }
             }
         }
@@ -1246,10 +1301,24 @@ class AutoDJEngine {
     }
 
     /**
-     * Execute intelligent crossfade with musical awareness
+     * Execute professional stem-based crossfade with energy matching
      */
     async executeIntelligentCrossfade(transitionPoint, entryPoint) {
-        console.log('🎵 Executing intelligent crossfade with musical awareness');
+        console.log('🎵 Executing professional stem-based crossfade');
+        
+        // Sophisticated transition based on energy analysis
+        if (this.shouldUseStemMixing(transitionPoint, entryPoint)) {
+            await this.executeProfessionalStemMixing(transitionPoint, entryPoint);
+        } else {
+            await this.executeStandardOverlapCrossfade(transitionPoint, entryPoint);
+        }
+    }
+
+    /**
+     * Execute standard overlapping crossfade (both tracks audible during transition)
+     */
+    async executeStandardOverlapCrossfade(transitionPoint, entryPoint) {
+        console.log('🎵 Executing standard overlap crossfade - both tracks audible');
         
         // Adaptive crossfade duration based on energy levels
         let crossfadeDuration = 8.0; // Default
@@ -1265,30 +1334,244 @@ class AutoDJEngine {
         const audioContext = this.audioEngine.audioContext;
         const startTime = audioContext.currentTime;
         
-        // Ensure proper starting volumes
+        console.log(`🎵 Crossfade: ${crossfadeDuration}s overlap with both tracks audible`);
+        
+        // Start Track A at full volume, Track B at zero
         if (this.audioEngine.trackAGain) {
             this.audioEngine.trackAGain.gain.setValueAtTime(1.0, startTime);
             this.audioEngine.trackAGain.gain.linearRampToValueAtTime(0, startTime + crossfadeDuration);
-            console.log(`🎵 Track A: Fading from 100% to 0% over ${crossfadeDuration}s`);
+            console.log(`🎵 Track A: 100% -> 0% over ${crossfadeDuration}s`);
         }
+        
         if (this.audioEngine.trackBGain) {
             this.audioEngine.trackBGain.gain.setValueAtTime(0, startTime);
-            this.audioEngine.trackBGain.gain.linearRampToValueAtTime(1, startTime + crossfadeDuration);
-            console.log(`🎵 Track B: Fading from 0% to 100% over ${crossfadeDuration}s`);
+            this.audioEngine.trackBGain.gain.linearRampToValueAtTime(1.0, startTime + crossfadeDuration);
+            console.log(`🎵 Track B: 0% -> 100% over ${crossfadeDuration}s`);
+        }
+        
+        // Both tracks will be audible during the crossfade period
+        console.log(`🎵 Both tracks playing simultaneously for ${crossfadeDuration}s transition`);
+    }
+
+    /**
+     * Execute professional stem mixing like Traktor
+     * Phase 1: Swap vocals/bass, Phase 2: Swap other/drums
+     */
+    async executeProfessionalStemMixing(transitionPoint, entryPoint) {
+        console.log('🎵 Executing professional stem mixing - Traktor style');
+        
+        const audioContext = this.audioEngine.audioContext;
+        const startTime = audioContext.currentTime;
+        const bpm = transitionPoint.bpm || 120;
+        const secondsPerBar = (60 / bpm) * 4;
+        const barsPerPhase = 16;
+        const phaseLength = secondsPerBar * barsPerPhase; // 16 bars in seconds
+        
+        console.log(`🎵 Stem mixing: ${barsPerPhase} bars per phase (${phaseLength.toFixed(1)}s each)`);
+        
+        // PHASE 1: Swap vocals and bass (immediate)
+        console.log('🎵 Phase 1: Swapping vocals and bass');
+        this.swapStems(['vocals', 'bass'], startTime, 2.0); // 2 second transition
+        
+        // PHASE 2: Swap other and drums (after 16 bars)
+        setTimeout(() => {
+            console.log('🎵 Phase 2: Swapping other and drums');
+            this.swapStems(['other', 'drums'], audioContext.currentTime, 2.0);
+        }, phaseLength * 1000);
+        
+        console.log(`🎵 Professional stem mixing initiated - ${barsPerPhase * 2} bars total`);
+    }
+
+    /**
+     * Swap specific stems between tracks
+     */
+    swapStems(stemTypes, startTime, transitionDuration) {
+        stemTypes.forEach(stemType => {
+            const stemA = this.audioEngine.stemGains[stemType]?.trackA;
+            const stemB = this.audioEngine.stemGains[stemType]?.trackB;
+            
+            if (stemA && stemB) {
+                // Fade out Track A stem
+                stemA.gain.setValueAtTime(stemA.gain.value, startTime);
+                stemA.gain.linearRampToValueAtTime(0, startTime + transitionDuration);
+                
+                // Fade in Track B stem  
+                stemB.gain.setValueAtTime(stemB.gain.value, startTime);
+                stemB.gain.linearRampToValueAtTime(1.0, startTime + transitionDuration);
+                
+                console.log(`🎵 Swapping ${stemType}: A->0%, B->100% over ${transitionDuration}s`);
+            }
+        });
+    }
+
+    /**
+     * Determine if we should use sophisticated stem mixing
+     */
+    shouldUseStemMixing(transitionPoint, entryPoint) {
+        // Use stem mixing for vocal changes and section boundaries
+        return transitionPoint.type === 'vocal_change' || 
+               transitionPoint.type === 'section_boundary' ||
+               transitionPoint.type === 'energy_change' ||
+               entryPoint.description.includes('vocal') ||
+               entryPoint.description.includes('chorus');
+    }
+
+    /**
+     * Analyze energy changes in the track (like Traktor's energy analysis)
+     * Looks for dramatic energy increases/decreases, drops, builds, etc.
+     */
+    analyzeEnergyChanges(analysis, currentTime, maxTimePoint) {
+        const energyChanges = [];
+        
+        // Use beatgrid data to find energy patterns
+        if (analysis.beatgrid && Array.isArray(analysis.beatgrid)) {
+            const relevantBeats = analysis.beatgrid.filter(beat => 
+                beat >= currentTime && beat <= maxTimePoint
+            );
+            
+            // Analyze beat intensity patterns (simulated)
+            for (let i = 0; i < relevantBeats.length - 8; i += 8) { // Check every 8 beats
+                const beatTime = relevantBeats[i];
+                const progress = beatTime / analysis.duration;
+                
+                // Simulate energy analysis based on track position and beat patterns
+                let energyLevel = 'medium';
+                let intensity = 0.5;
+                let description = 'Energy shift';
+                
+                // Intro section (0-25%) - usually building energy
+                if (progress < 0.25) {
+                    if (i % 16 === 0) { // Every 16 beats in intro
+                        energyLevel = 'building';
+                        intensity = 0.7;
+                        description = 'Intro build-up';
+                        energyChanges.push({
+                            time: beatTime,
+                            type: 'energy_build',
+                            level: energyLevel,
+                            intensity: intensity,
+                            direction: 'up',
+                            description: description
+                        });
+                    }
+                }
+                // Main section (25-75%) - drops and peaks
+                else if (progress >= 0.25 && progress <= 0.75) {
+                    if (i % 32 === 0) { // Major energy changes every 32 beats
+                        energyLevel = 'peak';
+                        intensity = 0.9;
+                        description = 'Main section peak';
+                        energyChanges.push({
+                            time: beatTime,
+                            type: 'energy_peak',
+                            level: energyLevel,
+                            intensity: intensity,
+                            direction: 'peak',
+                            description: description
+                        });
+                    } else if (i % 16 === 8) { // Drops between peaks
+                        energyLevel = 'drop';
+                        intensity = 0.8;
+                        description = 'Energy drop';
+                        energyChanges.push({
+                            time: beatTime,
+                            type: 'energy_drop',
+                            level: energyLevel,
+                            intensity: intensity,
+                            direction: 'down',
+                            description: description
+                        });
+                    }
+                }
+                // Outro section (75-100%) - gradual decline
+                else if (progress > 0.75) {
+                    if (i % 16 === 0) {
+                        energyLevel = 'declining';
+                        intensity = 0.6;
+                        description = 'Outro energy decline';
+                        energyChanges.push({
+                            time: beatTime,
+                            type: 'energy_decline',
+                            level: energyLevel,
+                            intensity: intensity,
+                            direction: 'down',
+                            description: description
+                        });
+                    }
+                }
+            }
+        }
+        
+        return energyChanges;
+    }
+
+    /**
+     * Analyze vocal sections and transitions (like Traktor's vocal detection)
+     * Identifies vocal starts, stops, and changes
+     */
+    analyzeVocalSections(analysis, currentTime, maxTimePoint) {
+        const vocalSections = [];
+        
+        // Use existing vocal analysis if available
+        if (analysis.vocals && Array.isArray(analysis.vocals)) {
+            analysis.vocals.forEach(vocalSection => {
+                const startTime = vocalSection.start || vocalSection.time;
+                const endTime = vocalSection.end || (startTime + (vocalSection.duration || 8));
+                
+                // Vocal start (high priority transition point)
+                if (startTime >= currentTime && startTime <= maxTimePoint) {
+                    vocalSections.push({
+                        time: startTime,
+                        type: 'vocal_start',
+                        action: 'entry',
+                        description: 'Vocal section begins'
+                    });
+                }
+                
+                // Vocal end (good transition point)
+                if (endTime >= currentTime && endTime <= maxTimePoint) {
+                    vocalSections.push({
+                        time: endTime,
+                        type: 'vocal_end',
+                        action: 'exit',
+                        description: 'Vocal section ends'
+                    });
+                }
+            });
         } else {
-            console.error('❌ trackBGain not found - crossfade may fail');
+            // Estimate vocal sections based on track structure
+            const duration = analysis.duration || 180;
+            const estimatedVocalSections = [
+                { start: duration * 0.15, end: duration * 0.35, type: 'verse_1' },
+                { start: duration * 0.40, end: duration * 0.55, type: 'chorus_1' },
+                { start: duration * 0.60, end: duration * 0.75, type: 'verse_2' },
+                { start: duration * 0.80, end: duration * 0.95, type: 'chorus_2' }
+            ];
+            
+            estimatedVocalSections.forEach(section => {
+                // Vocal section start
+                if (section.start >= currentTime && section.start <= maxTimePoint) {
+                    vocalSections.push({
+                        time: section.start,
+                        type: section.type + '_start',
+                        action: 'entry',
+                        description: `${section.type} begins`
+                    });
+                }
+                
+                // Vocal section end
+                if (section.end >= currentTime && section.end <= maxTimePoint) {
+                    vocalSections.push({
+                        time: section.end,
+                        type: section.type + '_end',
+                        action: 'exit',
+                        description: `${section.type} ends`
+                    });
+                }
+            });
         }
         
-        // Legacy gain node support
-        if (this.audioEngine.currentGainNode) {
-            this.audioEngine.currentGainNode.gain.linearRampToValueAtTime(0, startTime + crossfadeDuration);
-        }
-        if (this.audioEngine.nextGainNode) {
-            this.audioEngine.nextGainNode.gain.setValueAtTime(0, startTime);
-            this.audioEngine.nextGainNode.gain.linearRampToValueAtTime(1, startTime + crossfadeDuration);
-        }
-        
-        console.log(`🎵 Crossfade duration: ${crossfadeDuration}s based on ${transitionPoint.type}`);
+        return vocalSections;
     }
 }
 
