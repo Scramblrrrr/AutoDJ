@@ -408,7 +408,7 @@ function ProfessionalBeatViewport({
             {deckATrack ? `${deckATrack.title} - ${deckATrack.artist || 'Unknown'}` : 'No track loaded'}
           </div>
           <div className="bpm-display">
-            {deckATrack?.bmp || deckATrack?.bpm || 120} BPM
+            {deckATrack?.bpm || 120} BPM
           </div>
         </DeckHeader>
         
@@ -470,7 +470,7 @@ function ProfessionalBeatViewport({
             {deckBTrack ? `${deckBTrack.title} - ${deckBTrack.artist || 'Unknown'}` : 'No track loaded'}
           </div>
           <div className="bpm-display">
-            {deckBTrack?.bmp || deckBTrack?.bpm || 120} BPM
+            {deckBTrack?.bpm || 120} BPM
           </div>
         </DeckHeader>
         
