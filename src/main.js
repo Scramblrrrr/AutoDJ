@@ -19,9 +19,9 @@ function createWindow() {
       contextIsolation: false,
       enableRemoteModule: true
     },
-    icon: isDev 
-      ? path.join(__dirname, '../Assets/AI DJ - Logo.png')
-      : path.join(__dirname, './Assets/AI DJ - Logo.png'),
+    // icon: isDev 
+    //   ? path.join(__dirname, '../Assets/AI DJ - Logo.png')
+    //   : path.join(__dirname, './Assets/AI DJ - Logo.png'),
     titleBarStyle: 'default'
   });
 
