@@ -474,8 +474,6 @@ function MusicDownloader() {
   const [quality, setQuality] = useState('320');
   const [format, setFormat] = useState('wav');
   const [downloads, setDownloads] = useState([]);
-  const [autoProcess, setAutoProcess] = useState(true);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [showFFmpegGuide, setShowFFmpegGuide] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorModalMessage, setErrorModalMessage] = useState('');
@@ -487,7 +485,6 @@ function MusicDownloader() {
       setOutputPath(settings.downloadPath || fileManager.getDefaultPath('downloads'));
       setQuality(settings.defaultQuality || '320');
       setFormat(settings.defaultFormat || 'wav');
-      setAutoProcess(settings.autoProcess !== undefined ? settings.autoProcess : true);
     } else {
       setOutputPath(fileManager.getDefaultPath('downloads'));
     }
@@ -498,9 +495,18 @@ function MusicDownloader() {
 
     // Set up progress listener
     fileManager.setupProgressListener((type, data) => {
-      if (type === 'download') {
-        // Update download progress in real-time
-        console.log('Download progress:', data);
+      if (type === 'download' && data && typeof data === 'object') {
+        const { id, message } = data;
+        if (!id || !message) return;
+
+        const percentMatch = message.match(/(\d+(?:\.\d+)?)%/);
+        if (percentMatch) {
+          const percent = parseFloat(percentMatch[1]);
+          setDownloads(prev => prev.map(d =>
+            d.id === id ? { ...d, progress: percent, status: 'downloading' } : d
+          ));
+          storage.updateDownload(id, { progress: percent, status: 'downloading' });
+        }
       }
     });
 
@@ -544,20 +550,122 @@ function MusicDownloader() {
     return { valid: true };
   };
 
-  const addDownload = async () => {
+  const startDownload = async (download) => {
+    setDownloads(prev => prev.map(d =>
+      d.id === download.id ? { ...d, status: 'downloading', progress: 0 } : d
+    ));
+    storage.updateDownload(download.id, { status: 'downloading', progress: 0 });
+
+    try {
+      const result = await fileManager.downloadAudio(download.url, outputPath, download.id);
+
+      if (result.success) {
+        const completedDownload = {
+          ...download,
+          status: 'completed',
+          progress: 100,
+          title: result.video_info?.title || 'Downloaded Track',
+          artist: result.video_info?.artist || 'Unknown Artist',
+          duration: result.video_info?.duration_string || '0:00',
+          filePath: result.output_file,
+          completedAt: Date.now()
+        };
+
+        setDownloads(prev => prev.map(d =>
+          d.id === download.id ? completedDownload : d
+        ));
+
+        storage.updateDownload(download.id, completedDownload);
+
+        storage.addProcessingRecord({
+          type: 'download',
+          title: `Downloaded ${completedDownload.title}`,
+          status: 'completed',
+          filePath: result.output_file
+        });
+
+      } else {
+        const possibleFiles = await fileManager.findRecentDownloads(outputPath, download.url);
+
+        if (possibleFiles && possibleFiles.length > 0) {
+          const foundFile = possibleFiles[0];
+
+          const completedDownload = {
+            ...download,
+            status: 'completed',
+            progress: 100,
+            title: download.title || 'Downloaded Track',
+            artist: 'Downloaded',
+            duration: '0:00',
+            filePath: foundFile,
+            completedAt: Date.now()
+          };
+
+          setDownloads(prev => prev.map(d =>
+            d.id === download.id ? completedDownload : d
+          ));
+
+          storage.updateDownload(download.id, completedDownload);
+
+        } else {
+          const errorDownload = {
+            ...download,
+            status: 'error',
+            progress: 0,
+            error: result.error
+          };
+
+          setDownloads(prev => prev.map(d =>
+            d.id === download.id ? errorDownload : d
+          ));
+
+          storage.updateDownload(download.id, errorDownload);
+
+          storage.addProcessingRecord({
+            type: 'download',
+            title: `Failed to download from ${download.url}`,
+            status: 'failed',
+            error: result.error
+          });
+
+          if (result.error && result.error.toLowerCase().includes('ffmpeg')) {
+            setShowFFmpegGuide(true);
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Download error:', error);
+
+      const errorDownload = {
+        ...download,
+        status: 'error',
+        progress: 0,
+        error: error.message
+      };
+
+      setDownloads(prev => prev.map(d =>
+        d.id === download.id ? errorDownload : d
+      ));
+
+      storage.updateDownload(download.id, errorDownload);
+
+      if (error.message && error.message.toLowerCase().includes('ffmpeg')) {
+        setShowFFmpegGuide(true);
+      }
+    }
+  };
+
+  const addDownload = () => {
     if (!url.trim()) return;
-    
-    // Validate URL before processing
+
     const validation = validateURL(url);
     if (!validation.valid) {
-      // Show error modal to user
       setErrorModalMessage(validation.error);
       setShowErrorModal(true);
       return;
     }
-    
-    setIsDownloading(true);
-    
+
     const downloadData = {
       url,
       title: 'Fetching info...',
@@ -569,134 +677,12 @@ function MusicDownloader() {
       format,
       outputPath
     };
-    
+
     const savedDownload = storage.addDownload(downloadData);
     setDownloads(prev => [...prev, savedDownload]);
     setUrl('');
-    
-    try {
-      // Use real file manager to download
-      const result = await fileManager.downloadAudio(savedDownload.url, outputPath);
-      
-      if (result.success) {
-        const completedDownload = {
-          ...savedDownload,
-          status: 'completed',
-          progress: 100,
-          title: result.video_info?.title || 'Downloaded Track',
-          artist: result.video_info?.artist || 'Unknown Artist',
-          duration: result.video_info?.duration_string || '0:00',
-          filePath: result.output_file,
-          completedAt: Date.now()
-        };
 
-        setDownloads(prev => prev.map(d => 
-          d.id === savedDownload.id ? completedDownload : d
-        ));
-
-        storage.updateDownload(savedDownload.id, completedDownload);
-
-        // Add to processing history
-        storage.addProcessingRecord({
-          type: 'download',
-          title: `Downloaded ${completedDownload.title}`,
-          status: 'completed',
-          filePath: result.output_file
-        });
-
-        // Auto-process if enabled
-        if (autoProcess && result.output_file) {
-          console.log('Auto-processing enabled, starting stem processing...');
-          await processDownloadedFile(completedDownload, result.output_file);
-        }
-
-      } else {
-        // Handle download error - but first check if a file was actually created
-        console.log('Download reported failure, but checking for actual files...');
-        
-        // Check if any files were created recently in the download directory
-        const possibleFiles = await fileManager.findRecentDownloads(outputPath, savedDownload.url);
-        
-        if (possibleFiles && possibleFiles.length > 0) {
-          // A file was found! Treat as successful
-          const foundFile = possibleFiles[0];
-          console.log('Found downloaded file despite error:', foundFile);
-          
-          const completedDownload = {
-            ...savedDownload,
-            status: 'completed',
-            progress: 100,
-            title: savedDownload.title || 'Downloaded Track',
-            artist: 'Downloaded',
-            duration: '0:00',
-            filePath: foundFile,
-            completedAt: Date.now()
-          };
-
-          setDownloads(prev => prev.map(d => 
-            d.id === savedDownload.id ? completedDownload : d
-          ));
-
-          storage.updateDownload(savedDownload.id, completedDownload);
-
-          // Auto-process if enabled
-          if (autoProcess) {
-            console.log('Auto-processing enabled, starting stem processing...');
-            await processDownloadedFile(completedDownload, foundFile);
-          }
-        } else {
-          // Actual failure
-          console.log('Download failed:', result.error);
-          const errorDownload = {
-            ...savedDownload,
-            status: 'error',
-            progress: 0,
-            error: result.error
-          };
-
-          setDownloads(prev => prev.map(d => 
-            d.id === savedDownload.id ? errorDownload : d
-          ));
-
-          storage.updateDownload(savedDownload.id, errorDownload);
-
-          storage.addProcessingRecord({
-            type: 'download',
-            title: `Failed to download from ${savedDownload.url}`,
-            status: 'failed',
-            error: result.error
-          });
-
-          // Show FFmpeg guide if it's an FFmpeg-related error
-          if (result.error && result.error.toLowerCase().includes('ffmpeg')) {
-            setShowFFmpegGuide(true);
-          }
-        }
-      }
-
-    } catch (error) {
-      console.error('Download error:', error);
-      
-      const errorDownload = {
-        ...savedDownload,
-        status: 'error',
-        progress: 0,
-        error: error.message
-      };
-
-      setDownloads(prev => prev.map(d => 
-        d.id === savedDownload.id ? errorDownload : d
-      ));
-
-      storage.updateDownload(savedDownload.id, errorDownload);
-
-      // Show FFmpeg guide if it's an FFmpeg-related error
-      if (error.message && error.message.toLowerCase().includes('ffmpeg')) {
-        setShowFFmpegGuide(true);
-      }
-    }
-    
-    setIsDownloading(false);
+    startDownload(savedDownload);
   };
 
   const closeErrorModal = () => {
@@ -882,13 +868,13 @@ function MusicDownloader() {
             onChange={(e) => setUrl(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && addDownload()}
           />
-          <button 
-            className="btn-primary" 
-            onClick={addDownload} 
-            disabled={!url.trim() || isDownloading}
+          <button
+            className="btn-primary"
+            onClick={addDownload}
+            disabled={!url.trim()}
           >
             <Download size={16} style={{ marginRight: '8px' }} />
-            {isDownloading ? 'Processing...' : 'Add Download'}
+            Add Download
           </button>
         </URLInput>
 
@@ -959,7 +945,7 @@ function MusicDownloader() {
               gap: '8px'
             }}>
               <CheckCircle size={16} />
-              Auto-processing enabled by default - stems will be created automatically after download
+              After downloading, process stems from the Upload & Process page
             </div>
           </div>
         </OutputSettings>
