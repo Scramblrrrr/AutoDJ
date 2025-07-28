@@ -333,12 +333,11 @@ class AudioEngine {
       const sampleRate = audioBuffer.sampleRate;
       const channelData = audioBuffer.getChannelData(0); // Use first channel
       
-      // Analyze first 60 seconds for comprehensive beat detection
-      const analyzeLength = Math.min(sampleRate * 60, channelData.length);
-      const analysisData = channelData.slice(0, analyzeLength);
-      
-      // Apply high-pass filter to emphasize beats
-      const filteredData = this.highPassFilter(analysisData, sampleRate, 60);
+      // Analyze the entire track for comprehensive beat detection. Previously
+      // this was capped at 60 seconds which meant the beat grid would only
+      // cover roughly the first 30 bars at ~120 BPM. Removing the limit ensures
+      // accurate beat markers for the full song length.
+      const filteredData = this.highPassFilter(channelData, sampleRate, 60);
       
       // Detect tempo and beat grid using autocorrelation
       const result = this.autocorrelationBPMWithGrid(filteredData, sampleRate);
@@ -485,7 +484,10 @@ class AudioEngine {
     const beatInterval = 60 / bpm;
     const beatGrid = [];
     
-    for (let time = 0; time < Math.min(duration, 60); time += beatInterval) {
+    // Cover the entire track when generating a fallback beat grid instead of
+    // limiting to the first 60 seconds. This prevents beat markers from
+    // disappearing on longer songs if BPM detection fails.
+    for (let time = 0; time < duration; time += beatInterval) {
       const beatNumber = Math.floor(time / beatInterval);
       const isDownbeat = beatNumber % 4 === 0;
       
