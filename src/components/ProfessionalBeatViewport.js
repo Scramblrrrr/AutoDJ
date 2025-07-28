@@ -13,7 +13,7 @@ const ViewportContainer = styled.div`
 
 const DeckViewport = styled.div`
   position: relative;
-  height: 120px;
+  height: 160px;
   border-radius: 8px;
   overflow: hidden;
   border: 2px solid ${props => props.$deckColor || '#333'};
@@ -262,57 +262,43 @@ function ProfessionalBeatViewport({
     // Calculate visible time window (centered on playhead)
     const windowStart = Math.max(0, playTime - viewportTime / 2);
     const windowEnd = windowStart + viewportTime;
-    
+
     // Professional Serato-style frequency-colored waveform
     const samplesPerPixel = Math.max(1, Math.floor(waveformData.length / canvasWidth));
     const startSample = Math.floor((windowStart / track.duration) * waveformData.length);
     const endSample = Math.min(waveformData.length, Math.floor((windowEnd / track.duration) * waveformData.length));
     
-    // Draw stereo waveform with frequency separation
+    // Draw layered stem waveforms (approximation using frequency bands)
+    const stems = [
+      { key: 'vocals', color: '#ff4081', field: 'treble' },
+      { key: 'drums', color: '#ffc107', field: 'mid' },
+      { key: 'bass', color: '#2196f3', field: 'bass' },
+      { key: 'other', color: '#9c27b0', field: 'rms' }
+    ];
+
+    const layerHeight = canvasHeight / stems.length;
+
     for (let x = 0; x < canvasWidth; x++) {
       const sampleIndex = startSample + Math.floor((x / canvasWidth) * (endSample - startSample));
       if (sampleIndex >= 0 && sampleIndex < waveformData.length) {
         const sample = waveformData[sampleIndex];
-        const centerY = canvasHeight / 2;
-        
-        // Enhanced frequency analysis
-        const bass = Math.min(sample.rms * 0.8, 1.0);     // Low frequencies (green)
-        const mid = Math.min(sample.rms * 0.6, 1.0);      // Mid frequencies (orange/yellow)
-        const treble = Math.min(sample.peak * 0.4, 1.0);  // High frequencies (red)
-        
-        // Calculate heights based on frequency content
-        const bassHeight = bass * canvasHeight * 0.4;
-        const midHeight = mid * canvasHeight * 0.3;
-        const trebleHeight = treble * canvasHeight * 0.2;
-        
-        // Serato-style colors with transparency
-        const deckColor = deck === 'A' ? [0, 255, 136] : [255, 255, 0];
-        
-        // Draw bass (bottom - green tones)
-        if (bassHeight > 1) {
-          ctx.fillStyle = `rgba(${Math.floor(deckColor[0] * 0.6)}, ${Math.floor(deckColor[1] * 0.8)}, ${Math.floor(deckColor[2] * 0.3)}, ${bass * 0.9})`;
-          ctx.fillRect(x, centerY, 2, bassHeight);
-          ctx.fillRect(x, centerY - bassHeight, 2, bassHeight);
-        }
-        
-        // Draw mids (middle - orange/yellow tones)
-        if (midHeight > 1) {
-          ctx.fillStyle = `rgba(${Math.floor(deckColor[0] * 0.8)}, ${Math.floor(deckColor[1] * 0.9)}, ${Math.floor(deckColor[2] * 0.1)}, ${mid * 0.8})`;
-          ctx.fillRect(x, centerY, 1, midHeight);
-          ctx.fillRect(x, centerY - midHeight, 1, midHeight);
-        }
-        
-        // Draw treble (top - bright colors)
-        if (trebleHeight > 1) {
-          ctx.fillStyle = `rgba(${deckColor[0]}, ${Math.floor(deckColor[1] * 0.7)}, ${deckColor[2]}, ${treble * 0.7})`;
-          ctx.fillRect(x, centerY, 1, trebleHeight);
-          ctx.fillRect(x, centerY - trebleHeight, 1, trebleHeight);
-        }
-        
-        // Add peak indicators for transients
-        if (sample.peak > 0.7) {
-          ctx.fillStyle = `rgba(255, 255, 255, ${(sample.peak - 0.7) * 3})`;
-          ctx.fillRect(x, centerY - 2, 1, 4);
+
+        stems.forEach((stem, idx) => {
+          const value = sample[stem.field] !== undefined ? sample[stem.field] : sample.rms;
+          const amplitude = Math.min(value, 1.0);
+          const h = amplitude * layerHeight;
+          const yCenter = idx * layerHeight + layerHeight / 2;
+
+          if (h > 1) {
+            ctx.fillStyle = stem.color;
+            ctx.fillRect(x, yCenter - h / 2, 1, h);
+          }
+        });
+
+        // Optional peak indicator over the entire waveform
+        if (sample.peak > 0.9) {
+          ctx.fillStyle = 'rgba(255,255,255,0.5)';
+          ctx.fillRect(x, 0, 1, canvasHeight);
         }
       }
     }
