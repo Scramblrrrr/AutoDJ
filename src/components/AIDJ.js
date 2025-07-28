@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
-import { Play, Pause, SkipForward, SkipBack, Volume2, Shuffle, Settings, Plus, X, BarChart3, Music, Check, GripVertical, Info, Sliders, Zap, Filter, RotateCcw, FastForward, Rewind } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, Shuffle, Settings, Plus, X, BarChart3, Music, Check, GripVertical, Info, Sliders, Zap, Filter, RotateCcw, FastForward, Rewind, Activity } from 'lucide-react';
 import storage from '../utils/storage';
 import audioEngine from '../utils/audioEngine';
 import ProfessionalBeatViewport from './ProfessionalBeatViewport';
@@ -588,6 +588,36 @@ const QueueList = styled.div`
   max-height: calc(100% - 60px);
 `;
 
+const ActionLogSection = styled.div`
+  background: #252525;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 24px;
+  overflow-y: auto;
+  height: 180px;
+  margin-top: 20px;
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+
+    svg {
+      margin-right: 8px;
+      color: #888;
+    }
+  }
+`;
+
+const ActionLogItem = styled.div`
+  font-size: 12px;
+  color: #ccc;
+  margin-bottom: 6px;
+`;
+
 const SongSelectionModal = styled.div`
   position: fixed;
   top: 0;
@@ -1038,9 +1068,17 @@ function AIDJ() {
   const [deckBPlaying, setDeckBPlaying] = useState(false);
   const [deckAQueue, setDeckAQueue] = useState([]);
   const [deckBQueue, setDeckBQueue] = useState([]);
-  
+  const [actionLog, setActionLog] = useState([]);
+
   const audioEngineRef = useRef(null);
   const waveformCanvasRef = useRef(null);
+
+  const logAction = (message) => {
+    setActionLog(prev => {
+      const entry = { id: Date.now(), message };
+      return [entry, ...prev].slice(0, 20);
+    });
+  };
 
   // Load processed tracks and initialize audio engine
   useEffect(() => {
@@ -1062,10 +1100,12 @@ function AIDJ() {
       switch (event) {
         case 'playbackStarted':
           setIsPlaying(true);
+          logAction('Playback started');
           break;
         case 'playbackPaused':
         case 'playbackStopped':
           setIsPlaying(false);
+          logAction('Playback paused');
           break;
         case 'timeUpdate':
           setCurrentTrack(prev => ({
@@ -1080,11 +1120,12 @@ function AIDJ() {
         case 'bpmDetected':
           setCurrentTrack(prev => ({
             ...prev,
-            bmp: data.bmp,
+            bpm: data.bpm,
             key: data.key // Key might be included with BPM detection
           }));
           setBeatGrid(data.beatGrid || []);
           setWaveformData(data.waveform || []);
+          logAction('BPM detected');
           break;
         case 'keyDetected':
           console.log('🎼 Key detected:', data.key);
@@ -1092,6 +1133,7 @@ function AIDJ() {
             ...prev,
             key: data.key
           }));
+          logAction('Key detected');
           break;
         case 'trackEnded':
           // Auto-progress to next track if queue has more tracks
@@ -1101,6 +1143,7 @@ function AIDJ() {
           } else {
             setIsPlaying(false);
           }
+          logAction('Track ended');
           break;
         case 'stemVolumeChanged':
           // Handle deck-specific stem volume updates from AI DJ
@@ -1111,6 +1154,7 @@ function AIDJ() {
               [`deck${data.deck}_${data.stemName}`]: data.volume
             }));
             console.log(`🎛️ AI DJ updated Deck ${data.deck} ${data.stemName}: ${Math.round(data.volume * 100)}%`);
+            logAction(`Deck ${data.deck} ${data.stemName} ${Math.round(data.volume * 100)}%`);
           } else {
             // Legacy single-deck update
             setStemVolumes(prev => ({
@@ -1121,6 +1165,7 @@ function AIDJ() {
           break;
         case 'crossfadeChanged':
           setCrossfadePosition(data.position);
+          logAction(`Crossfade ${Math.round(data.position * 100)}%`);
           break;
         case 'deckEffectChanged':
           setDeckEffects(prev => ({
@@ -1130,6 +1175,7 @@ function AIDJ() {
               [data.effectName]: data.value
             }
           }));
+          logAction(`Deck ${data.deck} ${data.effectName} ${Math.round(data.value * 100)}%`);
           break;
         case 'deckEQChanged':
           setEqSettings(prev => ({
@@ -1139,9 +1185,11 @@ function AIDJ() {
               [data.band]: data.value
             }
           }));
+          logAction(`Deck ${data.deck} EQ ${data.band} ${Math.round(data.value * 100)}%`);
           break;
         case 'autoMixChanged':
           setAutoMixEnabled(data.enabled);
+          logAction(`Auto Mix ${data.enabled ? 'enabled' : 'disabled'}`);
           break;
         case 'transitionComplete':
           // Load next track from queue
@@ -1156,6 +1204,7 @@ function AIDJ() {
             });
             setQueue(prev => prev.slice(1));
           }
+          logAction('Transition complete');
           break;
         case 'requestNextTrack':
           console.log('🎵 Audio engine requesting next track:', data);
@@ -1193,6 +1242,7 @@ function AIDJ() {
           setDeckBTrack(data.track);
           setDeckBBeatGrid(data.beatGrid || []);
           setDeckBWaveform(data.waveform || []);
+          logAction(`Deck B loaded ${data.track.title}`);
           break;
       }
     };
@@ -1312,7 +1362,7 @@ function AIDJ() {
       const trackData = {
         ...track,
         deck: deck,
-        bmp: track.bmp || 120
+        bpm: track.bpm || 120
       };
 
       // Load as next track for transitions
@@ -1798,10 +1848,10 @@ function AIDJ() {
             <BPMSection $synced={bpmSynced}>
               <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                 <div className="deck-info">
-                  <div className="bmp-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
-                    {currentTrack.bmp || 120}
+                  <div className="bpm-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
+                    {currentTrack.bpm || 120}
                   </div>
-                  <div className="bmp-label">Deck A BPM</div>
+                  <div className="bpm-label">Deck A BPM</div>
                   <div className="key-display" style={{ 
                     marginTop: '4px', 
                     fontSize: '12px', 
@@ -1818,10 +1868,10 @@ function AIDJ() {
                   </div>
                 </div>
                 <div className="deck-info">
-                  <div className="bmp-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
-                    {deckBTrack?.bmp || (deckBQueue.length > 0 ? deckBQueue[0].bmp || 120 : 120)}
+                  <div className="bpm-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
+                    {deckBTrack?.bpm || (deckBQueue.length > 0 ? deckBQueue[0].bpm || 120 : 120)}
                   </div>
-                  <div className="bmp-label">Deck B BPM</div>
+                  <div className="bpm-label">Deck B BPM</div>
                   <div className="key-display" style={{ 
                     marginTop: '4px', 
                     fontSize: '12px', 
@@ -2655,6 +2705,19 @@ function AIDJ() {
                 )}
             </QueueList>
           </QueueSection>
+
+          <ActionLogSection>
+            <h3>
+              <Activity size={16} /> DJ Actions
+            </h3>
+            {actionLog.length === 0 ? (
+              <div style={{ color: '#666', fontSize: '12px' }}>No actions yet</div>
+            ) : (
+              actionLog.map(entry => (
+                <ActionLogItem key={entry.id}>{entry.message}</ActionLogItem>
+              ))
+            )}
+          </ActionLogSection>
         </RightPanel>
       </MainGrid>
 
