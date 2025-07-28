@@ -301,7 +301,22 @@ ipcMain.handle('process-stems', async (event, filePath, outputDir) => {
       const dataStr = data.toString();
       console.log('Python stdout received:', dataStr);
       output += dataStr;
-      event.sender.send('stem-progress', dataStr);
+      
+      // Send progress updates to renderer
+      const lines = dataStr.split('\n');
+      for (const line of lines) {
+        if (line.trim()) {
+          event.sender.send('stem-progress', line.trim());
+          
+          // Also emit as processing-update event for the new event listener
+          if (mainWindow) {
+            mainWindow.webContents.send('processing-update', {
+              type: 'stem-processing',
+              data: line.trim()
+            });
+          }
+        }
+      }
     });
 
     pythonProcess.stderr.on('data', (data) => {
@@ -386,7 +401,14 @@ ipcMain.handle('download-audio', async (event, url, outputDir, downloadId) => {
     pythonProcess.stdout.on('data', (data) => {
       const dataStr = data.toString();
       output += dataStr;
-      event.sender.send('download-progress', { id: downloadId, message: dataStr });
+      
+      // Send progress updates to renderer
+      const lines = dataStr.split('\n');
+      for (const line of lines) {
+        if (line.includes('PROGRESS:') || line.includes('SUCCESS:')) {
+          event.sender.send('download-progress', { id: downloadId, message: line });
+        }
+      }
     });
 
     pythonProcess.stderr.on('data', (data) => {
@@ -395,9 +417,37 @@ ipcMain.handle('download-audio', async (event, url, outputDir, downloadId) => {
 
     pythonProcess.on('close', (code) => {
       if (code === 0) {
-        resolve(output);
+        try {
+          // Try to parse the last JSON output from the Python script
+          const lines = output.split('\n');
+          let jsonResult = null;
+          
+          // Look for JSON result (usually the last substantial line)
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (line.startsWith('{') && line.endsWith('}')) {
+              try {
+                jsonResult = JSON.parse(line);
+                break;
+              } catch (e) {
+                // Continue looking for valid JSON
+                continue;
+              }
+            }
+          }
+          
+          if (jsonResult) {
+            resolve(jsonResult);
+          } else {
+            // Fallback to parsing text output
+            resolve(output);
+          }
+        } catch (parseError) {
+          console.error('Error parsing download result:', parseError);
+          resolve(output); // Return raw output as fallback
+        }
       } else {
-        reject(new Error(error));
+        reject(new Error(error || 'Download failed'));
       }
     });
   });

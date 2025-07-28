@@ -5,12 +5,13 @@ import { Upload, File, CheckCircle, Clock, AlertCircle, Play, Trash2, FolderOpen
 import storage from '../utils/storage';
 import fileManager from '../utils/fileManager';
 
+const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
+
 const UploadContainer = styled.div`
   padding: 30px;
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100vh;
   background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-  padding-bottom: 100px; /* Extra space at bottom for better scrolling */
+  padding-bottom: 150px; /* Extra space at bottom for better scrolling */
 `;
 
 const Header = styled.div`
@@ -493,13 +494,6 @@ function UploadProcess() {
       setFiles(updatedFiles);
     };
 
-    // Listen for storage updates (when downloads are added)
-    window.addEventListener('storage-updated', handleStorageUpdate);
-    
-    return () => {
-      window.removeEventListener('storage-updated', handleStorageUpdate);
-    };
-
     // Set up progress listener
     fileManager.setupProgressListener((type, data) => {
       console.log(`Progress [${type}]:`, data); // Debug: log all progress messages
@@ -509,40 +503,111 @@ function UploadProcess() {
       }));
     });
 
+    // Also listen for processing updates
+    const handleProcessingUpdate = (event, data) => {
+      // Handle both custom events and IPC events
+      let updateType, updateData;
+      
+      if (event.detail) {
+        // Custom event format
+        updateType = event.detail.type;
+        updateData = event.detail.data;
+      } else {
+        // IPC event format
+        updateType = data?.type || 'stem-processing';
+        updateData = data?.data || data;
+      }
+      
+      console.log(`Processing update [${updateType}]:`, updateData);
+      setProgressMessages(prev => ({
+        ...prev,
+        [updateType]: updateData
+      }));
+    };
+
+    // Listen for storage updates (when downloads are added)
+    window.addEventListener('storage-updated', handleStorageUpdate);
+    window.addEventListener('processing-update', handleProcessingUpdate);
+    
+    // Listen for IPC processing updates from main process
+    if (ipcRenderer) {
+      ipcRenderer.on('processing-update', handleProcessingUpdate);
+    }
+
     return () => {
       fileManager.removeProgressListener();
+      window.removeEventListener('storage-updated', handleStorageUpdate);
+      window.removeEventListener('processing-update', handleProcessingUpdate);
+      
+      // Remove IPC listener
+      if (ipcRenderer) {
+        ipcRenderer.removeListener('processing-update', handleProcessingUpdate);
+      }
     };
   }, []);
 
   // Watch for progress message changes and update file progress
   useEffect(() => {
-    const progressData = progressMessages['stem-processing'];
-    if (progressData && typeof progressData === 'string') {
-      console.log('Processing progress message:', progressData); // Debug log
-      const percentageMatch = progressData.match(/PROGRESS:\s*(\d+)%/);
-      if (percentageMatch) {
-        const percentage = parseInt(percentageMatch[1]);
-        console.log('Extracted percentage:', percentage); // Debug log
+    // Process all progress messages, not just 'stem-processing'
+    Object.entries(progressMessages).forEach(([messageType, progressData]) => {
+      if (progressData && typeof progressData === 'string') {
+        console.log(`Processing progress message [${messageType}]:`, progressData); // Debug log
         
-        // Find and update the currently processing file
-        setFiles(prevFiles => {
-          const processingFiles = prevFiles.filter(f => f.status === 'processing');
-          console.log('Processing files found:', processingFiles.length); // Debug log
+        // Look for file-specific progress patterns
+        const fileNameMatch = progressData.match(/Processing:\s*(.+?)(?:\s|$)/) ||
+                             progressData.match(/File:\s*(.+?)(?:\s|$)/) ||
+                             progressData.match(/Working on:\s*(.+?)(?:\s|$)/);
+        
+        // Look for various progress patterns
+        const percentageMatch = progressData.match(/(\d+)%/) || 
+                              progressData.match(/PROGRESS:\s*(\d+)%/) ||
+                              progressData.match(/Progress:\s*(\d+)%/) ||
+                              progressData.match(/(\d+)\s*percent/i);
+        
+        if (percentageMatch) {
+          const percentage = parseInt(percentageMatch[1]);
+          console.log('Extracted percentage:', percentage); // Debug log
           
-          return prevFiles.map(file => {
-            if (file.status === 'processing') {
-              console.log(`Updating file ${file.name} progress to ${percentage}%`); // Debug log
-              // Update storage as well
-              storage.updateTrack(file.id, { progress: percentage });
-              return { ...file, progress: percentage };
-            }
-            return file;
+          // Try to match progress to specific file if filename is in message
+          let targetFileName = null;
+          if (fileNameMatch) {
+            targetFileName = fileNameMatch[1].trim();
+          }
+          
+          setFiles(prevFiles => {
+            const processingFiles = prevFiles.filter(f => f.status === 'processing');
+            console.log('Processing files found:', processingFiles.length); // Debug log
+            
+            return prevFiles.map(file => {
+              // If we have a specific filename, only update that file
+              if (targetFileName) {
+                if (file.name.includes(targetFileName) || targetFileName.includes(file.name)) {
+                  console.log(`Updating specific file ${file.name} progress to ${percentage}%`);
+                  storage.updateTrack(file.id, { progress: percentage });
+                  return { ...file, progress: percentage };
+                }
+                return file;
+              } 
+              // Otherwise, update the file with the lowest progress (most likely candidate)
+              else if (file.status === 'processing') {
+                const shouldUpdate = processingFiles.length === 1 || 
+                                   file.progress <= percentage ||
+                                   (file.progress === 0 && percentage > 0);
+                
+                if (shouldUpdate) {
+                  console.log(`Updating file ${file.name} progress to ${percentage}%`);
+                  storage.updateTrack(file.id, { progress: percentage });
+                  return { ...file, progress: percentage };
+                }
+              }
+              return file;
+            });
           });
-        });
-      } else {
-        console.log('No percentage match found in:', progressData); // Debug log
+        } else {
+          console.log(`No percentage match found in [${messageType}]:`, progressData);
+        }
       }
-    }
+    });
   }, [progressMessages]);
 
   const onDrop = useCallback((acceptedFiles) => {
@@ -812,26 +877,7 @@ function UploadProcess() {
     setSelectAll(false);
   };
 
-  const handleBrowseClick = async () => {
-    try {
-      const selectedFiles = await fileManager.selectFiles();
-      if (selectedFiles && selectedFiles.length > 0) {
-        // Convert file paths to file objects for processing
-        const fileObjects = selectedFiles.map(filePath => {
-          const fileInfo = fileManager.getFileInfo(filePath);
-          return {
-            name: fileInfo.name,
-            path: filePath,
-            size: fileInfo.size
-          };
-        });
-        
-        onDrop(fileObjects);
-      }
-    } catch (error) {
-      console.error('Error selecting files:', error);
-    }
-  };
+
 
   const handlePreviewFile = (file) => {
     if (file.stemsPath) {
@@ -870,11 +916,7 @@ function UploadProcess() {
           <input {...getInputProps()} />
           <Upload size={48} />
           <h3>Drop your music files here</h3>
-          <p>or click to browse your computer</p>
-                      <button className="btn-primary" onClick={handleBrowseClick}>
-              <FolderOpen size={16} style={{ marginRight: '8px' }} />
-              Browse Files
-            </button>
+          <p>or click anywhere to browse your computer</p>
           <div className="supported-formats">
             Supported formats: MP3, WAV, FLAC, M4A, AAC
           </div>
@@ -1117,25 +1159,54 @@ function UploadProcess() {
       )}
       
       {/* Progress Messages Display */}
-      {Object.keys(progressMessages).length > 0 && (
+      {(Object.keys(progressMessages).length > 0 || files.some(f => f.status === 'processing')) && (
         <div style={{ 
           marginTop: '20px', 
-          padding: '15px', 
-          background: '#1a1a1a', 
-          border: '1px solid #333',
-          borderRadius: '8px',
+          padding: '20px', 
+          background: 'linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%)', 
+          border: '1px solid #444',
+          borderRadius: '12px',
           fontFamily: 'monospace',
-          fontSize: '12px',
+          fontSize: '13px',
           color: '#ccc',
-          maxHeight: '200px',
-          overflowY: 'auto'
+          maxHeight: '300px',
+          overflowY: 'auto',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
         }}>
-          <h4 style={{ margin: '0 0 10px 0', color: '#888' }}>Processing Output:</h4>
-          {Object.entries(progressMessages).map(([type, message]) => (
-            <div key={type} style={{ marginBottom: '5px' }}>
-              <strong style={{ color: '#66d9ef' }}>[{type}]:</strong> {message}
+          <h4 style={{ 
+            margin: '0 0 15px 0', 
+            color: '#00ff88',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            🔄 Live Processing Output:
+          </h4>
+          {Object.keys(progressMessages).length > 0 ? (
+            Object.entries(progressMessages).map(([type, message]) => (
+              <div key={type} style={{ 
+                marginBottom: '8px',
+                padding: '8px',
+                background: 'rgba(0, 255, 136, 0.1)',
+                borderRadius: '6px',
+                borderLeft: '3px solid #00ff88'
+              }}>
+                <strong style={{ color: '#00ff88' }}>[{type}]:</strong> 
+                <span style={{ marginLeft: '8px' }}>{message}</span>
+              </div>
+            ))
+          ) : (
+            <div style={{ 
+              color: '#888',
+              fontStyle: 'italic',
+              padding: '10px',
+              textAlign: 'center'
+            }}>
+              Processing started... Console output will appear here.
             </div>
-          ))}
+          )}
         </div>
       )}
     </UploadContainer>

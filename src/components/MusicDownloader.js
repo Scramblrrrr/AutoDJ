@@ -479,15 +479,24 @@ function MusicDownloader() {
   const [errorModalMessage, setErrorModalMessage] = useState('');
 
   useEffect(() => {
-    // Load settings and downloads from storage
-    const settings = storage.getSettings();
-    if (settings) {
-      setOutputPath(settings.downloadPath || fileManager.getDefaultPath('downloads'));
-      setQuality(settings.defaultQuality || '320');
-      setFormat(settings.defaultFormat || 'wav');
-    } else {
-      setOutputPath(fileManager.getDefaultPath('downloads'));
-    }
+    // Initialize paths and load settings
+    const initializePaths = async () => {
+      // Wait for fileManager to initialize its paths
+      await fileManager.initializePaths();
+      
+      // Load settings and downloads from storage
+      const settings = storage.getSettings();
+      if (settings) {
+        // Always use the proper downloads path from fileManager
+        setOutputPath(fileManager.getDefaultPath('downloads'));
+        setQuality(settings.defaultQuality || '320');
+        setFormat(settings.defaultFormat || 'wav');
+      } else {
+        setOutputPath(fileManager.getDefaultPath('downloads'));
+      }
+    };
+
+    initializePaths();
 
     // Load existing downloads
     const existingDownloads = storage.getDownloads();
@@ -560,12 +569,40 @@ function MusicDownloader() {
       const result = await fileManager.downloadAudio(download.url, outputPath, download.id);
 
       if (result.success) {
+        console.log('Download result received:', result); // Debug log
+        console.log('Video info:', result.video_info); // Debug log
+        
+        // Extract better title from video info or filename
+        let cleanTitle = 'Downloaded Track';
+        if (result.video_info?.title) {
+          console.log('Using video_info title:', result.video_info.title);
+          cleanTitle = result.video_info.title;
+        } else if (result.output_file) {
+          console.log('Extracting title from filename:', result.output_file);
+          // Extract title from filename
+          const filename = result.output_file.split(/[/\\]/).pop();
+          cleanTitle = filename.replace(/\.[^/.]+$/, ''); // Remove extension
+        }
+
+        // Clean up common YouTube title patterns
+        cleanTitle = cleanTitle
+          .replace(/youtube video #\w+/gi, '') // Remove "youtube video #xyz"
+          .replace(/\s*\|\s*.+$/, '') // Remove " | Channel Name" suffix
+          .replace(/\s*-\s*.+$/, '') // Remove " - Channel Name" suffix
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+
+        // If title is still empty or too short, use URL-based fallback
+        if (!cleanTitle || cleanTitle.length < 3) {
+          cleanTitle = `Downloaded from ${new URL(download.url).hostname}`;
+        }
+
         const completedDownload = {
           ...download,
           status: 'completed',
           progress: 100,
-          title: result.video_info?.title || 'Downloaded Track',
-          artist: result.video_info?.artist || 'Unknown Artist',
+          title: cleanTitle,
+          artist: result.video_info?.artist || result.video_info?.uploader || 'Unknown Artist',
           duration: result.video_info?.duration_string || '0:00',
           filePath: result.output_file,
           completedAt: Date.now()
@@ -584,17 +621,42 @@ function MusicDownloader() {
           filePath: result.output_file
         });
 
+        // Add to processing queue
+        await addDownloadedFileToQueue(completedDownload, result.output_file);
+
       } else {
         const possibleFiles = await fileManager.findRecentDownloads(outputPath, download.url);
 
         if (possibleFiles && possibleFiles.length > 0) {
           const foundFile = possibleFiles[0];
 
+          // Extract title from filename for fallback case
+          let cleanTitle = 'Downloaded Track';
+          if (download.title && download.title !== 'New Download') {
+            cleanTitle = download.title;
+          } else {
+            // Extract from filename
+            const filename = foundFile.split(/[/\\]/).pop();
+            cleanTitle = filename.replace(/\.[^/.]+$/, ''); // Remove extension
+          }
+
+          // Clean up the title
+          cleanTitle = cleanTitle
+            .replace(/youtube video #\w+/gi, '')
+            .replace(/\s*\|\s*.+$/, '')
+            .replace(/\s*-\s*.+$/, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          if (!cleanTitle || cleanTitle.length < 3) {
+            cleanTitle = `Downloaded from ${new URL(download.url).hostname}`;
+          }
+
           const completedDownload = {
             ...download,
             status: 'completed',
             progress: 100,
-            title: download.title || 'Downloaded Track',
+            title: cleanTitle,
             artist: 'Downloaded',
             duration: '0:00',
             filePath: foundFile,
@@ -606,6 +668,9 @@ function MusicDownloader() {
           ));
 
           storage.updateDownload(download.id, completedDownload);
+
+          // Add to processing queue
+          await addDownloadedFileToQueue(completedDownload, foundFile);
 
         } else {
           const errorDownload = {
@@ -700,9 +765,9 @@ function MusicDownloader() {
     }, 100);
   };
 
-  const processDownloadedFile = async (download, filePath) => {
+  const addDownloadedFileToQueue = async (download, filePath) => {
     try {
-      console.log('Starting auto-processing for:', download.title, 'at:', filePath);
+      console.log('Adding downloaded file to processing queue:', download.title, 'at:', filePath);
       
       // Check if the downloaded file actually exists
       const fileExists = await fileManager.checkFileExists(filePath);
@@ -715,80 +780,45 @@ function MusicDownloader() {
         ));
         return;
       }
+
+      // Get file size
+      let fileSize = 0;
+      try {
+        const stats = await fileManager.getFileStats(filePath);
+        fileSize = stats?.size || 0;
+      } catch (error) {
+        console.warn('Could not get file size:', error);
+      }
       
-      // Add as a track for processing
+      // Add as a track for processing (but don't auto-process)
       const trackData = {
         name: download.title,
         filePath: filePath,
-        size: 0, // Will be calculated by file manager
-        sizeFormatted: 'Processing...',
-        status: 'pending',
+        size: fileSize,
+        sizeFormatted: fileManager.formatFileSize ? fileManager.formatFileSize(fileSize) : `${(fileSize / (1024 * 1024)).toFixed(2)} MB`,
+        status: 'pending', // Ready to be processed, but not processing yet
         progress: 0,
         type: 'downloaded',
         downloadId: download.id
       };
 
       const savedTrack = storage.addTrack(trackData);
-      console.log('Added track to storage for processing:', savedTrack.id);
+      console.log('Added downloaded track to processing queue:', savedTrack.id);
 
-      // Update the download to show processing status
+      // Update download status to show it's ready for processing
       setDownloads(prev => prev.map(d => 
         d.id === download.id 
-          ? { ...d, status: 'auto-processing', processingMessage: 'Processing stems... This may take several minutes.' }
+          ? { ...d, status: 'completed', processingMessage: 'Ready for processing in Upload & Process tab!' }
           : d
       ));
 
-      // Process stems
-      console.log('Starting stem processing...');
-      const result = await fileManager.processStems(
-        filePath, 
-        fileManager.getDefaultPath('stems')
-      );
-
-      if (result.success) {
-        storage.updateTrack(savedTrack.id, {
-          status: 'completed',
-          progress: 100,
-          stemsPath: result.stems,
-          processedAt: Date.now()
-        });
-
-        storage.addProcessingRecord({
-          type: 'processing',
-          title: `Auto-processed ${download.title}`,
-          status: 'completed',
-          filePath: filePath,
-          stemsPath: result.stems
-        });
-
-        // Update download status to show completion
-        setDownloads(prev => prev.map(d => 
-          d.id === download.id 
-            ? { ...d, status: 'completed', processingMessage: 'Stems processed successfully!' }
-            : d
-        ));
-
-      } else {
-        storage.updateTrack(savedTrack.id, {
-          status: 'error',
-          error: result.error
-        });
-
-        // Update download to show error
-        setDownloads(prev => prev.map(d => 
-          d.id === download.id 
-            ? { ...d, status: 'error', processingMessage: `Processing failed: ${result.error}` }
-            : d
-        ));
-      }
-
     } catch (error) {
-      console.error('Auto-processing error:', error);
+      console.error('Error adding downloaded file to queue:', error);
       
       // Update download to show error
       setDownloads(prev => prev.map(d => 
         d.id === download.id 
-          ? { ...d, status: 'error', processingMessage: `Processing failed: ${error.message}` }
+          ? { ...d, status: 'error', processingMessage: `Error: ${error.message}` }
           : d
       ));
     }

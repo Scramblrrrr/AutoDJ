@@ -13,14 +13,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: transparent;
   color: #ffffff;
-  overflow: hidden;
+  overflow-x: hidden; /* Only hide horizontal overflow */
 }
 
 #root {
-  height: 100vh;
+  min-height: 100vh;
   background: transparent;
   border-radius: 12px;
-  overflow: hidden;
 }
 
 code {

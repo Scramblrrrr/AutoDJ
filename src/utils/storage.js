@@ -108,7 +108,7 @@ class AutoDJStorage {
   addTrack(track) {
     const tracks = this.getTracks();
     const newTrack = {
-      id: Date.now() + Math.random(),
+      id: `track_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       ...track,
       addedAt: Date.now()
     };

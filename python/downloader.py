@@ -133,10 +133,25 @@ class MusicDownloader:
             return 'unknown'
     
     def sanitize_filename(self, filename: str) -> str:
-        """Sanitize filename to be safe for filesystem."""
+        """Sanitize filename to be safe for filesystem and remove YouTube artifacts."""
+        # Remove YouTube artifacts and unwanted patterns
+        filename = re.sub(r'youtube video #\w+', '', filename, flags=re.IGNORECASE)
+        filename = re.sub(r'#\w+', '', filename)  # Remove any hash tags
+        filename = re.sub(r'\s*\|\s*.+$', '', filename)  # Remove " | Channel Name" suffix
+        filename = re.sub(r'\s*-\s*Topic$', '', filename, flags=re.IGNORECASE)  # Remove "- Topic"
+        
         # Remove or replace problematic characters
         filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        filename = re.sub(r'[^\w\s\-_\.\(\)\[\]]', '', filename)  # Keep only safe characters
         filename = re.sub(r'\s+', ' ', filename).strip()
+        
+        # Remove leading/trailing underscores and dashes
+        filename = filename.strip('_-').strip()
+        
+        # Ensure we have something
+        if not filename or len(filename) < 2:
+            filename = "downloaded_track"
+            
         return filename[:200]  # Limit length
     
     def download_progress_hook(self, d):
@@ -181,16 +196,30 @@ class MusicDownloader:
             logger.info(f"Video info: {video_info['title']} by {video_info['artist']}")
             print(f"PROGRESS: 10% - Found: {video_info['title']}")
             
-            # Set up filename
+            # Set up filename with better sanitization
             if custom_filename:
                 filename = self.sanitize_filename(custom_filename)
             else:
-                filename = self.sanitize_filename(f"{video_info['artist']} - {video_info['title']}")
+                # Create a clean filename from artist and title
+                artist = video_info.get('artist', 'Unknown Artist')
+                title = video_info.get('title', 'Unknown Title')
+                
+                # Clean up the title to remove YouTube artifacts
+                clean_title = title
+                clean_title = clean_title.replace('youtube video #', '').strip()
+                clean_title = ' '.join(clean_title.split())  # Remove extra whitespace
+                
+                filename = self.sanitize_filename(f"{artist} - {clean_title}")
             
-            # Update yt-dlp options with progress hook
+            print(f"PROGRESS: 12% - Using filename: {filename}")
+            
+            # Update yt-dlp options with progress hook and explicit filename
             download_opts = self.ydl_opts.copy()
             download_opts['progress_hooks'] = [self.download_progress_hook]
+            # Force the exact filename we want
             download_opts['outtmpl'] = str(self.output_dir / f"{filename}.%(ext)s")
+            # Also set restrictfilenames to prevent yt-dlp from changing our filename
+            download_opts['restrictfilenames'] = True
             
             print("PROGRESS: 15% - Starting download...")
             
@@ -349,9 +378,13 @@ def main():
     if result['success']:
         print(f"SUCCESS: {result['message']}")
         print(f"File saved to: {result['output_file']}")
+        # Output the complete result as JSON on the last line for parsing
+        print(json.dumps(result))
         sys.exit(0)
     else:
         print(f"ERROR: {result['error']}")
+        # Output the error result as JSON on the last line for parsing
+        print(json.dumps(result))
         sys.exit(1)
 
 if __name__ == "__main__":

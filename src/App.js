@@ -11,17 +11,16 @@ import FirstTimeSetup from './components/FirstTimeSetup';
 const AppContainer = styled.div`
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 100vh;
   background: #1a1a1a;
   color: #ffffff;
   border-radius: 12px;
-  overflow: hidden;
 `;
 
 const ContentContainer = styled.div`
   display: flex;
   flex: 1;
-  overflow: hidden;
+  min-height: calc(100vh - 40px); /* Account for title bar */
 `;
 
 const Sidebar = styled.div`
@@ -81,7 +80,8 @@ const NavItem = styled.div`
 
 const MainContent = styled.div`
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 40px); /* Account for title bar */
 `;
 
 const tabs = [

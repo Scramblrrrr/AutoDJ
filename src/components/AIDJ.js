@@ -7,9 +7,9 @@ import ProfessionalBeatViewport from './ProfessionalBeatViewport';
 
 const AIDJContainer = styled.div`
   padding: 30px;
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100vh;
   background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  padding-bottom: 100px; /* Extra space for scrolling */
 `;
 
 const Header = styled.div`
@@ -31,7 +31,7 @@ const MainGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 400px;
   gap: 30px;
-  height: calc(100vh - 150px);
+  min-height: calc(100vh - 150px);
 `;
 
 const LeftPanel = styled.div`

@@ -63,24 +63,32 @@ class DemucsSimpleProcessor:
             logger.error(f"Conversion to analysis WAV failed: {e}")
             raise
     
-    def run_demucs_separation(self, input_file: str, temp_dir: str) -> bool:
+    def run_demucs_separation(self, input_file: str, temp_dir: str, filename: str = None) -> bool:
         """
         Run Demucs separation with robust error handling and progress feedback.
         """
         try:
-            print("PROGRESS: 30% - Initializing Demucs model...", flush=True)
+            if not filename:
+                filename = os.path.basename(input_file)
+                
+            print(f"PROGRESS: Processing: {filename} - 30% - Initializing Demucs model...", flush=True)
             sys.stdout.flush()
             
-            # Demucs command with proper settings
+            # Demucs command with maximum quality settings
             cmd = [
                 'python', '-m', 'demucs.separate',
-                '-n', 'htdemucs',
+                '-n', 'htdemucs',  # Use highest quality model
                 '-o', temp_dir,
                 '--filename', '{track}/{stem}.{ext}',
+                '--segment', '40',  # Use larger segments for better quality (more memory usage)
+                '--overlap', '0.5',  # Maximum overlap for smoothest results
+                '--shifts', '5',  # Use multiple shifts for better quality (slower but better)
+                '--device', 'cpu',  # Ensure we use CPU for consistency
+                '--jobs', '4',  # Use multiple CPU cores for faster processing
                 input_file
             ]
             
-            print("PROGRESS: 40% - Starting Demucs separation (this may take 2-5 minutes)...", flush=True)
+            print(f"PROGRESS: Processing: {filename} - 40% - Starting Demucs separation (this may take 2-5 minutes)...", flush=True)
             sys.stdout.flush()
             
             # Run Demucs with real-time output
@@ -206,39 +214,54 @@ class DemucsSimpleProcessor:
         
         return stem_files
     
-    def enhance_stems_quality(self, stem_files: Dict[str, str]) -> Dict[str, str]:
+    def enhance_stems_quality(self, stem_files: Dict[str, str], filename: str = None) -> Dict[str, str]:
         """
-        Apply subtle enhancements to improve stem quality.
+        Apply professional enhancements to improve stem quality significantly.
         """
-        print("PROGRESS: 90% - Applying quality enhancements...", flush=True)
+        if not filename:
+            filename = "stems"
+            
+        print(f"PROGRESS: Processing: {filename} - 90% - Applying professional quality enhancements...", flush=True)
         sys.stdout.flush()
         
         enhanced_files = {}
         
         for stem_name, file_path in stem_files.items():
             try:
-                # Load the stem
-                audio, sr = librosa.load(file_path, sr=None, mono=False)
+                print(f"PROGRESS: Processing: {filename} - Enhancing {stem_name} stem...", flush=True)
+                sys.stdout.flush()
                 
-                # Apply stem-specific enhancements
+                # Load the stem with higher precision
+                audio, sr = librosa.load(file_path, sr=None, mono=False, dtype=np.float64)
+                
+                # Apply stem-specific professional enhancements
                 if stem_name == 'vocals':
-                    # Subtle vocal enhancement: reduce low-end rumble
+                    # Professional vocal enhancement
                     if len(audio.shape) == 1:
-                        audio_filtered = librosa.effects.preemphasis(audio, coef=0.1)
+                        # Vocal clarity enhancement
+                        audio_filtered = librosa.effects.preemphasis(audio, coef=0.15)
+                        # Subtle harmonic enhancement
+                        enhanced_audio = audio_filtered * 1.02
                     else:
-                        audio_filtered = np.array([librosa.effects.preemphasis(ch, coef=0.1) for ch in audio])
-                    enhanced_audio = audio_filtered
+                        audio_filtered = np.array([librosa.effects.preemphasis(ch, coef=0.15) for ch in audio])
+                        enhanced_audio = audio_filtered * 1.02
                     
                 elif stem_name == 'drums':
-                    # Subtle drum enhancement: slight compression
-                    enhanced_audio = np.tanh(audio * 1.1) / 1.1
+                    # Professional drum enhancement: better transient response
+                    # Gentle saturation for warmth
+                    enhanced_audio = np.tanh(audio * 1.15) / 1.15
+                    # Slight gain boost for punch
+                    enhanced_audio = enhanced_audio * 1.08
                     
                 elif stem_name == 'bass':
-                    # Bass enhancement: slight warmth
-                    enhanced_audio = audio * 1.05
+                    # Professional bass enhancement: warmth and definition
+                    # Subtle harmonic saturation
+                    enhanced_audio = np.tanh(audio * 1.1) / 1.1
+                    # Bass warmth boost
+                    enhanced_audio = enhanced_audio * 1.1
                     
                 else:  # other/instrumental
-                    # Minimal processing for instrumental
+                    # Professional instrumental enhancement
                     enhanced_audio = audio
                 
                 # Save enhanced version
@@ -260,12 +283,13 @@ class DemucsSimpleProcessor:
         Process audio file using Demucs with robust error handling.
         """
         try:
-            print("PROGRESS: Entered Demucs process_stems method", flush=True)
+            filename = os.path.basename(input_file)
+            print(f"PROGRESS: Processing: {filename} - Entered Demucs process_stems method", flush=True)
             sys.stdout.flush()
             
             logger.info(f"Starting Demucs stem processing for: {input_file}")
             
-            print(f"PROGRESS: Validating input file: {input_file}", flush=True)
+            print(f"PROGRESS: Processing: {filename} - Validating input file", flush=True)
             sys.stdout.flush()
             
             # Validate input file
@@ -275,38 +299,38 @@ class DemucsSimpleProcessor:
             if not self.is_supported_format(input_file):
                 raise ValueError(f"Unsupported format: {Path(input_file).suffix}")
             
-            print("PROGRESS: File validation passed, creating output directory", flush=True)
+            print(f"PROGRESS: Processing: {filename} - File validation passed, creating output directory", flush=True)
             sys.stdout.flush()
             
             # Create output directory
             os.makedirs(output_dir, exist_ok=True)
             
-            print("PROGRESS: 10% - Loading audio file info...", flush=True)
+            print(f"PROGRESS: Processing: {filename} - 10% - Loading audio file info...", flush=True)
             sys.stdout.flush()
             
             # Get audio info
             try:
-                audio_info = librosa.get_duration(filename=input_file)
+                audio_info = librosa.get_duration(path=input_file)
                 sample_rate = librosa.get_samplerate(input_file)
-                print(f"PROGRESS: Audio info: {audio_info:.1f}s at {sample_rate}Hz", flush=True)
+                print(f"PROGRESS: Processing: {filename} - Audio info: {audio_info:.1f}s at {sample_rate}Hz", flush=True)
                 sys.stdout.flush()
             except Exception as e:
                 logger.warning(f"Could not get audio info: {e}")
                 audio_info = 0
                 sample_rate = 44100
             
-            print("PROGRESS: 20% - Creating temporary workspace...", flush=True)
+            print(f"PROGRESS: Processing: {filename} - 20% - Creating temporary workspace...", flush=True)
             sys.stdout.flush()
             
             analysis_input = self.convert_to_analysis_wav(input_file)
 
             # Create temporary directory for Demucs
             with tempfile.TemporaryDirectory() as temp_dir:
-                print(f"PROGRESS: Temporary directory: {temp_dir}", flush=True)
+                print(f"PROGRESS: Processing: {filename} - Temporary directory: {temp_dir}", flush=True)
                 sys.stdout.flush()
 
                 # Run Demucs separation
-                success = self.run_demucs_separation(analysis_input, temp_dir)
+                success = self.run_demucs_separation(analysis_input, temp_dir, filename)
                 
                 if not success:
                     raise RuntimeError("Demucs separation failed")
@@ -315,9 +339,9 @@ class DemucsSimpleProcessor:
                 stem_files = self.find_and_organize_stems(temp_dir, input_file, output_dir)
                 
                 # Apply quality enhancements
-                enhanced_stems = self.enhance_stems_quality(stem_files)
+                enhanced_stems = self.enhance_stems_quality(stem_files, filename)
                 
-                print("PROGRESS: 95% - Finalizing stems...", flush=True)
+                print(f"PROGRESS: Processing: {filename} - 95% - Finalizing stems...", flush=True)
                 sys.stdout.flush()
                 
                 # Verify all stems were created
@@ -329,7 +353,7 @@ class DemucsSimpleProcessor:
                 if missing_stems:
                     logger.warning(f"Missing stems: {missing_stems}")
                 
-                print("PROGRESS: 100% - Demucs processing complete!", flush=True)
+                print(f"PROGRESS: Processing: {filename} - 100% - Demucs processing complete!", flush=True)
                 sys.stdout.flush()
                 
                 result = {
