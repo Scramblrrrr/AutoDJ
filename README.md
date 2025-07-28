@@ -149,6 +149,16 @@ npm run electron-pack
 4. **File Organization**: Save processed stems with proper naming
 5. **Quality Control**: Verify output quality and completeness
 
+### File Locations
+AutoDJ keeps music organized under `~/Music/AutoDJ/Library`:
+
+- **Downloads**: raw downloads from YouTube or SoundCloud are stored in `Library/Downloads`
+- **Processed**: copies of tracks that have been processed live in `Library/Processed`
+- **Stems**: extracted stems are saved in `Library/Stems`
+- **Temp**: temporary working files are placed in `Temp`
+
+Original files are never deleted automatically.
+
 ## Configuration
 
 ### Audio Settings
