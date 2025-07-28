@@ -187,15 +187,26 @@ function ProfessionalBeatViewport({
   deckBCurrentTime = 0,
   onCuePointClick,
   onLoopRegionClick,
-  onWaveformClick 
+  onWaveformClick
 }) {
   const deckAWaveformRef = useRef(null);
   const deckBWaveformRef = useRef(null);
   const deckABeatGridRef = useRef(null);
   const deckBBeatGridRef = useRef(null);
-  
+
+  const currentTimeRef = useRef(currentTime);
+  const deckBTimeRef = useRef(deckBCurrentTime);
+
   const [zoom, setZoom] = useState(1.0); // 1.0 = normal, 2.0 = 2x zoom
   const [viewportTime, setViewportTime] = useState(20); // seconds visible in viewport
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    deckBTimeRef.current = deckBCurrentTime;
+  }, [deckBCurrentTime]);
   
   // Optimized rendering - only update when data changes or time advances significantly
   useEffect(() => {
@@ -205,10 +216,10 @@ function ProfessionalBeatViewport({
     
     const updateViewports = (timestamp) => {
       if (timestamp - lastUpdateTime >= FRAME_RATE) {
-        drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTime);
-        drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBCurrentTime);
-        drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTime);
-        drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBCurrentTime);
+        drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTimeRef.current);
+        drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBTimeRef.current);
+        drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTimeRef.current);
+        drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBTimeRef.current);
         lastUpdateTime = timestamp;
       }
       
@@ -227,20 +238,6 @@ function ProfessionalBeatViewport({
     };
   }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
   
-  // Separate effect for time updates to avoid constant re-rendering
-  useEffect(() => {
-    if (deckATrack && deckAWaveformRef.current) {
-      drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTime);
-      drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTime);
-    }
-  }, [currentTime]);
-  
-  useEffect(() => {
-    if (deckBTrack && deckBWaveformRef.current) {
-      drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBCurrentTime);
-      drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBCurrentTime);
-    }
-  }, [deckBCurrentTime]);
   
   const drawDeckWaveform = (deck, track, waveformData, canvas, playTime) => {
     if (!canvas || !waveformData.length || !track) return;
