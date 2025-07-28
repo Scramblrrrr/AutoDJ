@@ -299,7 +299,7 @@ ipcMain.handle('process-stems', async (event, filePath, outputDir) => {
   });
 });
 
-ipcMain.handle('download-audio', async (event, url, outputDir) => {
+ipcMain.handle('download-audio', async (event, url, outputDir, downloadId) => {
   return new Promise((resolve, reject) => {
     const downloaderPath = isDev 
       ? path.join(__dirname, '../python/downloader.py')
@@ -315,8 +315,9 @@ ipcMain.handle('download-audio', async (event, url, outputDir) => {
     let error = '';
 
     pythonProcess.stdout.on('data', (data) => {
-      output += data.toString();
-      event.sender.send('download-progress', data.toString());
+      const dataStr = data.toString();
+      output += dataStr;
+      event.sender.send('download-progress', { id: downloadId, message: dataStr });
     });
 
     pythonProcess.stderr.on('data', (data) => {

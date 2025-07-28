@@ -37,7 +37,7 @@ class AutoDJStorage {
         processedPath: './processed',
         defaultQuality: '320',
         defaultFormat: 'wav',
-        autoProcess: true,
+        autoProcess: false,
         theme: 'dark',
         stemModel: 'htdemucs'
       });
