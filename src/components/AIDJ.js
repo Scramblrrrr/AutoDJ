@@ -361,6 +361,12 @@ const Crossfader = styled.div`
   flex-direction: column;
   align-items: center;
   gap: 16px;
+
+  .crossfader-value {
+    font-size: 12px;
+    color: #888;
+    font-family: monospace;
+  }
   
   .crossfader-track {
     width: 200px;
@@ -818,6 +824,15 @@ const QueueItem = styled.div`
       font-size: 12px;
       color: #888;
     }
+  }
+
+  .deck-label {
+    background: #444;
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-left: 6px;
   }
   
   .track-stems {
@@ -1437,7 +1452,19 @@ function AIDJ() {
     } else {
       setDeckBQueue(prev => [...prev, ...tracks]);
     }
+
+    // Remove moved tracks from main queue for clarity
+    setQueue(prev => prev.filter(q => !tracks.some(t => t.id === q.id)));
+
     console.log(`Added ${tracks.length} track(s) to Deck ${deck} queue`);
+  };
+
+  const removeFromDeckQueue = (deck, id) => {
+    if (deck === 'A') {
+      setDeckAQueue(prev => prev.filter(t => t.id !== id));
+    } else {
+      setDeckBQueue(prev => prev.filter(t => t.id !== id));
+    }
   };
 
   const skipForward = () => {
@@ -2137,7 +2164,10 @@ function AIDJ() {
               </ChannelStrip>
 
               <Crossfader $position={crossfadePosition} style={{ opacity: autoMixEnabled ? 0.5 : 1 }}>
-                <div 
+                <div className="crossfader-value">
+                  {Math.round(crossfadePosition * 100)}%
+                </div>
+                <div
                   className="crossfader-track"
                   onMouseDown={autoMixEnabled ? undefined : (e) => {
                     const sliderElement = e.currentTarget;
@@ -2633,10 +2663,10 @@ function AIDJ() {
                     </div>
                   ) : (
                     deckAQueue.map((track, index) => (
-                      <div key={track.id} style={{ 
-                        padding: '4px 8px', 
-                        background: '#2a2a2a', 
-                        margin: '2px 0', 
+                      <div key={track.id} style={{
+                        padding: '4px 8px',
+                        background: '#2a2a2a',
+                        margin: '2px 0',
                         borderRadius: '4px',
                         fontSize: '12px',
                         display: 'flex',
@@ -2645,6 +2675,9 @@ function AIDJ() {
                       }}>
                         <span>{track.title}</span>
                         <span style={{ color: '#00ff88' }}>{track.bpm || 120} BPM</span>
+                        <button style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer' }} onClick={() => removeFromDeckQueue('A', track.id)} title="Remove from Deck A">
+                          <X size={12} />
+                        </button>
                       </div>
                     ))
                   )}
@@ -2684,10 +2717,10 @@ function AIDJ() {
                     </div>
                   ) : (
                     deckBQueue.map((track, index) => (
-                      <div key={track.id} style={{ 
-                        padding: '4px 8px', 
-                        background: '#2a2a2a', 
-                        margin: '2px 0', 
+                      <div key={track.id} style={{
+                        padding: '4px 8px',
+                        background: '#2a2a2a',
+                        margin: '2px 0',
                         borderRadius: '4px',
                         fontSize: '12px',
                         display: 'flex',
@@ -2696,6 +2729,9 @@ function AIDJ() {
                       }}>
                         <span>{track.title}</span>
                         <span style={{ color: '#88ff00' }}>{track.bpm || 120} BPM</span>
+                        <button style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer' }} onClick={() => removeFromDeckQueue('B', track.id)} title="Remove from Deck B">
+                          <X size={12} />
+                        </button>
                       </div>
                     ))
                   )}
@@ -2752,7 +2788,15 @@ function AIDJ() {
                           <Music size={20} />
                         </div>
                         <div className="track-details">
-                          <h4>{track.title}</h4>
+                          <h4>
+                            {track.title}
+                            {deckAQueue.some(t => t.id === track.id) && (
+                              <span className="deck-label">A</span>
+                            )}
+                            {deckBQueue.some(t => t.id === track.id) && (
+                              <span className="deck-label">B</span>
+                            )}
+                          </h4>
                           <p>{track.artist} • {track.duration}</p>
                         </div>
                         {track.hasStemsReady && (
