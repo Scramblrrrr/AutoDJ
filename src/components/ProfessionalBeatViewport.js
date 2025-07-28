@@ -199,6 +199,7 @@ function ProfessionalBeatViewport({
   const animationFrameRef = useRef(null);
   const lastUpdateTimeRef = useRef(0);
 
+
   const [zoom, setZoom] = useState(1.0); // 1.0 = normal, 2.0 = 2x zoom
   const [viewportTime, setViewportTime] = useState(20); // seconds visible in viewport
 
@@ -231,6 +232,25 @@ function ProfessionalBeatViewport({
 
   // Start or restart animation when track data is available
   useEffect(() => {
+
+    let animationFrame;
+    let lastUpdateTime = 0;
+    const FRAME_RATE = 1000 / 30; // 30 FPS instead of 60
+    
+    const updateViewports = (timestamp) => {
+      if (timestamp - lastUpdateTime >= FRAME_RATE) {
+        drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTimeRef.current);
+        drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBTimeRef.current);
+        drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTimeRef.current);
+        drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBTimeRef.current);
+        lastUpdateTime = timestamp;
+      }
+      
+      animationFrame = requestAnimationFrame(updateViewports);
+    };
+    
+    // Only start animation if we have track data
+
     if (deckATrack || deckBTrack) {
       startAnimation();
     }
@@ -252,6 +272,9 @@ function ProfessionalBeatViewport({
     startAnimation();
     deckBTimeRef.current = deckBCurrentTime;
   }, [deckBCurrentTime, startAnimation]);
+
+  }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
+
   
   
   const drawDeckWaveform = (deck, track, waveformData, canvas, playTime) => {

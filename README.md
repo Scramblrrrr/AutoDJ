@@ -1,100 +1,88 @@
-# AutoDJ - AI-Powered Music Mixing Desktop App
+# AutoDJ - AI-Powered Desktop DJ Application
 
-AutoDJ is a sophisticated desktop application that automatically mixes user-uploaded music using AI-powered stem separation and advanced DJ algorithms. Built with Electron, React, and Python, it provides a seamless experience for both casual music lovers and professional DJs.
-
-![AutoDJ Logo](Assets/AI%20DJ%20-%20Logo.png)
+An intelligent desktop DJ application that uses AI to automatically mix and process music tracks.
 
 ## Features
 
-### 🎵 AI DJ Mixing
-- **Automatic Music Mixing**: AI-powered algorithms that seamlessly blend tracks
-- **Stem-based Control**: Individual control over vocals, drums, bass, and other instruments
-- **Queue Management**: Easy drag-and-drop queue system with real-time reordering
-- **BPM Matching**: Automatic tempo synchronization between tracks
-- **Smart Transitions**: Intelligent fade-ins, fade-outs, and crossfading
+- 🎵 **AI-Powered Stem Separation** - Separate vocals, drums, bass, and other instruments
+- 🎧 **Automatic Music Mixing** - Intelligent beat matching and transitions
+- 📥 **Music Download** - Download tracks from various sources
+- 🎛️ **Professional DJ Interface** - Intuitive controls for live mixing
+- 🔧 **Multiple Processing Options** - Choose from different AI models
+- 📱 **Cross-Platform** - Works on Windows, macOS, and Linux
 
-### 🎧 Audio Processing
-- **Stem Separation**: Uses Meta's Demucs for high-quality source separation
-- **Multiple Format Support**: MP3, WAV, FLAC, M4A, AAC (WAV recommended for analysis)
-- **Batch Processing**: Process multiple tracks simultaneously
-- **Real-time Visualization**: Live stem level monitoring and control
-
-### 📥 Music Acquisition
-- **YouTube Integration**: Download music directly from YouTube
-- **SoundCloud Support**: Import tracks from SoundCloud
-- **Quality Options**: Choose from 128kbps to 320kbps
-- **Format Conversion**: Convert to your preferred audio format (default: WAV for best BPM/key analysis)
-- **Metadata Extraction**: Automatic title, artist, and duration detection
-
-### 🎨 Modern Interface
-- **Dark Theme**: Sleek greyscale design optimized for extended use
-- **Responsive Layout**: Adaptive interface that works on various screen sizes
-- **Real-time Feedback**: Live progress indicators and status updates
-- **Intuitive Controls**: Easy-to-use interface inspired by professional DJ software
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
-1. **Node.js** (v16 or higher)
-2. **Python** (v3.8 or higher)
-3. **FFmpeg** (for audio processing)
+- **Node.js** (v16 or higher)
+- **Python** (v3.8 or higher) with pip
+- **FFmpeg** installed and in your PATH
 
-#### Installing FFmpeg
+### Installation
 
-**Windows:**
-```powershell
-# Using chocolatey
-choco install ffmpeg
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/AutoDJ.git
+   cd AutoDJ
+   ```
 
-# Or download from https://ffmpeg.org/download.html
-```
+2. **Install dependencies**
+   ```bash
+   npm install
+   npm run install-python-deps
+   ```
 
-**macOS:**
+3. **Start development**
+   ```bash
+   npm run electron-dev
+   ```
+
+## Packaging & Distribution
+
+### Quick Packaging (Windows)
+
 ```bash
-# Using homebrew
-brew install ffmpeg
+# Run the automated packaging script
+package-windows.bat
 ```
 
-**Linux:**
+### Manual Packaging
+
 ```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
+# Package for Windows
+npm run electron-pack-win
 
-# CentOS/RHEL
-sudo yum install ffmpeg
+# Package for macOS
+npm run electron-pack-mac
+
+# Package for Linux
+npm run electron-pack-linux
+
+# Package for all platforms
+npm run electron-pack-all
 ```
 
-### Setup Instructions
+### Using the Custom Script
 
-1. **Clone the repository:**
 ```bash
-git clone https://github.com/your-username/AutoDJ.git
-cd AutoDJ
+# Use the Node.js packaging script
+node scripts/package.js win    # Windows
+node scripts/package.js mac    # macOS
+node scripts/package.js linux  # Linux
+node scripts/package.js all    # All platforms
 ```
 
-2. **Install Node.js dependencies:**
-```bash
-npm install
-```
+## Generated Packages
 
-3. **Install Python dependencies:**
-```bash
-npm run install-python-deps
-# or manually:
-pip install -r python/requirements.txt
-```
+### File Locations
+AutoDJ keeps music organized under `~/Music/AutoDJ/Library`:
 
-4. **Start the development server:**
-```bash
-npm run electron-dev
-```
+- **Downloads**: raw downloads from YouTube or SoundCloud are stored in `Library/Downloads`
+- **Processed**: copies of tracks that have been processed live in `Library/Processed`
+- **Stems**: extracted stems are saved in `Library/Stems`
+- **Temp**: temporary working files are placed in `Temp`
 
-5. **Build for production:**
-```bash
-npm run build
-npm run electron-pack
-```
 
 ## Usage
 
@@ -126,7 +114,7 @@ npm run electron-pack
 - **URL Input**: Paste YouTube or SoundCloud links
 - **Quality Selection**: Choose audio quality from 128kbps to 320kbps
 - **Format Options**: Download in MP3, WAV, FLAC, or M4A format (WAV is used by default)
-- **Auto Processing**: Optionally process stems immediately after download
+ - **Manual Processing**: After download, process stems from the **Upload & Process** tab
 
 ## Technical Architecture
 
@@ -148,101 +136,131 @@ npm run electron-pack
 3. **Metadata Extraction**: Extract audio properties and tags
 4. **File Organization**: Save processed stems with proper naming
 5. **Quality Control**: Verify output quality and completeness
+=======
+Original files are never deleted automatically.
+
 
 ## Configuration
 
-### Audio Settings
-You can customize audio processing settings by modifying the configuration files:
+### Windows
+- `AutoDJ Setup.exe` - NSIS installer with shortcuts
+- `AutoDJ.exe` - Portable executable
+- `AutoDJ-win32-x64.zip` - Zipped application
 
-- **Quality**: Choose between different Demucs models (htdemucs, hdemucs)
-- **Output Format**: Configure default output formats
-- **Processing Threads**: Adjust CPU usage for processing
 
-### DJ Parameters
-Fine-tune the AI mixing algorithms:
+### macOS
+- `AutoDJ.dmg` - Disk image installer
+- `AutoDJ-mac.zip` - Zipped application
 
-- **BPM Tolerance**: How strictly to match tempos
-- **Transition Duration**: Length of crossfades
-- **Stem Mixing Rules**: How stems are combined during transitions
+### Linux
+- `AutoDJ.AppImage` - AppImage format
+- `AutoDJ.deb` - Debian package
+- `AutoDJ.rpm` - RPM package
 
 ## Development
 
+### Available Scripts
+
+- `npm start` - Start React development server
+- `npm run electron-dev` - Start Electron in development mode
+- `npm run build` - Build React app for production
+- `npm run electron` - Run Electron with built app
+
 ### Project Structure
+
 ```
 AutoDJ/
-├── src/                    # React frontend source
+├── src/                    # React application source
 │   ├── components/         # React components
-│   ├── App.js             # Main application component
+│   ├── utils/             # Utility functions
 │   └── main.js            # Electron main process
 ├── python/                # Python backend
-│   ├── stem_processor.py  # Stem separation logic
-│   ├── downloader.py      # Music download functionality
+│   ├── stem_processor.py  # AI stem separation
+│   ├── downloader.py      # Music downloader
 │   └── requirements.txt   # Python dependencies
-├── public/                # Static assets
 ├── Assets/                # Application assets
-└── package.json           # Node.js configuration
+├── build-resources/       # Build configuration
+└── scripts/               # Packaging scripts
 ```
 
-### Adding New Features
+## AI Models
 
-1. **Frontend Components**: Add new React components in `src/components/`
-2. **Backend Processing**: Extend Python scripts in `python/`
-3. **IPC Communication**: Use Electron's IPC for frontend-backend communication
-4. **Styling**: Use styled-components for consistent theming
+The application supports multiple AI models for stem separation:
 
-### Contributing
+- **Demucs** - High-quality separation (default)
+- **Open-Unmix** - Fast processing
+- **Spectral** - Lightweight option
+- **Professional** - Advanced features
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## Configuration
+
+### Python Dependencies
+
+Install required Python packages:
+```bash
+pip install -r python/requirements.txt
+```
+
+### FFmpeg Installation
+
+**Windows:**
+1. Download from https://ffmpeg.org/
+2. Extract to a folder
+3. Add to system PATH
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+**Linux:**
+```bash
+sudo apt install ffmpeg  # Ubuntu/Debian
+sudo yum install ffmpeg  # CentOS/RHEL
+```
 
 ## Troubleshooting
 
 ### Common Issues
 
-**"Module not found" errors:**
-- Ensure all dependencies are installed: `npm install && pip install -r python/requirements.txt`
+1. **Python not found**
+   - Ensure Python is installed and in PATH
+   - Run `npm run install-python-deps`
 
-**FFmpeg not found:**
-- Install FFmpeg and ensure it's in your system PATH
+2. **FFmpeg not found**
+   - Install FFmpeg and add to PATH
+   - Restart terminal after installation
 
-**Demucs processing fails:**
-- Check that you have enough RAM (8GB+ recommended)
-- Verify CUDA installation for GPU acceleration (optional)
+3. **Build fails**
+   - Clear `node_modules` and reinstall
+   - Check Python dependencies
+   - Verify all assets exist
 
-**Download failures:**
-- Some videos may be geo-restricted or have download restrictions
-- Try updating yt-dlp: `pip install --upgrade yt-dlp`
+### Getting Help
 
-### Performance Optimization
+- Check the [PACKAGING.md](PACKAGING.md) for detailed packaging information
+- Review build logs in the `dist` directory
+- Ensure all prerequisites are met
 
-**For better performance:**
-- Use GPU acceleration if available (NVIDIA CUDA)
-- Increase RAM allocation for large batch processing
-- Use SSD storage for faster file operations
-- Close other resource-intensive applications
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- **Meta AI** for the incredible Demucs source separation model
-- **yt-dlp** community for the robust downloading capabilities
-- **Electron** and **React** teams for the excellent frameworks
-- **Music producers and DJs** who inspired this project
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Support
 
-If you encounter any issues or have feature requests, please:
-
-1. Check the [troubleshooting section](#troubleshooting)
-2. Search existing [GitHub issues](https://github.com/your-username/AutoDJ/issues)
-3. Create a new issue with detailed information
+For issues and questions:
+1. Check the troubleshooting section
+2. Review the documentation
+3. Open an issue on GitHub
 
 ---
 
-**Made with ❤️ for music lovers and DJs everywhere** 
+**AutoDJ** - Making AI-powered DJing accessible to everyone! 🎧✨ 
