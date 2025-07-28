@@ -115,6 +115,10 @@ class AutoDJStorage {
     tracks.push(newTrack);
     this.setItem(this.keys.TRACKS, tracks);
     this.incrementStat('totalTracks');
+    
+    // Emit storage update event
+    window.dispatchEvent(new CustomEvent('storage-updated', { detail: { type: 'track-added', track: newTrack } }));
+    
     return newTrack;
   }
 

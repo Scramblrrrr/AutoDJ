@@ -2436,11 +2436,11 @@ class AudioEngine {
 
   // Analyze current vocal activity to avoid vocal clashes
   analyzeCurrentVocalActivity() {
-    if (!this.stemGains || !this.stemGains.vocals) return 0.5;
+    if (!this.stemGains || !this.stemGains.vocals || !this.stemGains.vocals.gain) return 0.5;
     
-    const vocalGain = this.stemGains.vocals.gain.value;
-    const currentTime = this.currentTime;
-    const duration = this.duration;
+    const vocalGain = this.stemGains.vocals.gain.value || 0.5;
+    const currentTime = this.currentTime || 0;
+    const duration = this.duration || 1;
     
     // Use beatgrid vocal activity estimation if available
     if (this.currentTrack.beatGrid) {

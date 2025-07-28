@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { Home, Music, Upload, Download } from 'lucide-react';
 import Dashboard from './components/Dashboard';
@@ -6,6 +6,7 @@ import AIDJ from './components/AIDJ';
 import UploadProcess from './components/UploadProcess';
 import MusicDownloader from './components/MusicDownloader';
 import CustomTitleBar from './components/CustomTitleBar';
+import FirstTimeSetup from './components/FirstTimeSetup';
 
 const AppContainer = styled.div`
   display: flex;
@@ -92,8 +93,61 @@ const tabs = [
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [showSetup, setShowSetup] = useState(false);
+  const [isCheckingSetup, setIsCheckingSetup] = useState(true);
+
+  const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
+
+  useEffect(() => {
+    checkSetupStatus();
+  }, []);
+
+  const checkSetupStatus = async () => {
+    if (!ipcRenderer) {
+      setIsCheckingSetup(false);
+      return;
+    }
+
+    try {
+      const config = await ipcRenderer.invoke('get-app-config');
+      if (!config || !config.setupCompleted) {
+        setShowSetup(true);
+      }
+    } catch (error) {
+      console.error('Error checking setup status:', error);
+      setShowSetup(true);
+    } finally {
+      setIsCheckingSetup(false);
+    }
+  };
+
+  const handleSetupComplete = (libraryPath) => {
+    console.log('Setup completed with path:', libraryPath);
+    setShowSetup(false);
+  };
 
   const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component || Dashboard;
+
+  // Show loading or setup modal
+  if (isCheckingSetup) {
+    return (
+      <AppContainer>
+        <CustomTitleBar />
+        <ContentContainer>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            height: '100%',
+            color: '#888',
+            fontSize: '16px'
+          }}>
+            Loading AutoDJ...
+          </div>
+        </ContentContainer>
+      </AppContainer>
+    );
+  }
 
   return (
     <AppContainer>
@@ -124,6 +178,10 @@ function App() {
           <ActiveComponent />
         </MainContent>
       </ContentContainer>
+      
+      {showSetup && (
+        <FirstTimeSetup onComplete={handleSetupComplete} />
+      )}
     </AppContainer>
   );
 }

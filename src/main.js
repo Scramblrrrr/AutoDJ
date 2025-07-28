@@ -9,91 +9,7 @@ const isDev = !app.isPackaged;
 
 let mainWindow;
 
-// First-time setup configuration
-async function checkFirstTimeSetup() {
-  const configPath = path.join(os.homedir(), '.autodj-config.json');
-  
-  try {
-    // Check if config exists
-    if (fs.existsSync(configPath)) {
-      return; // Already configured
-    }
-    
-    // Show first-time setup dialog
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      buttons: ['Choose Location', 'Use Default'],
-      defaultId: 0,
-      title: 'Welcome to AutoDJ!',
-      message: 'First Time Setup',
-      detail: 'Where would you like to store your music library?\n\n• Downloaded music\n• Processed stems\n• DJ projects\n\nChoose a location or use the default Music folder.'
-    });
-    
-    let selectedPath;
-    
-    if (result.response === 0) {
-      // User wants to choose location
-      const folderResult = await dialog.showOpenDialog(mainWindow, {
-        properties: ['openDirectory', 'createDirectory'],
-        title: 'Select AutoDJ Library Location',
-        defaultPath: path.join(os.homedir(), 'Music')
-      });
-      
-      if (folderResult.canceled) {
-        selectedPath = path.join(os.homedir(), 'Music', 'AutoDJ');
-      } else {
-        selectedPath = path.join(folderResult.filePaths[0], 'AutoDJ');
-      }
-    } else {
-      // Use default location
-      selectedPath = path.join(os.homedir(), 'Music', 'AutoDJ');
-    }
-    
-    // Create directory structure
-    const subfolders = ['Downloads', 'Processed', 'Stems', 'Projects'];
-    const libraryPath = path.join(selectedPath, 'Library');
-    
-    try {
-      if (!fs.existsSync(selectedPath)) {
-        fs.mkdirSync(selectedPath, { recursive: true });
-      }
-      if (!fs.existsSync(libraryPath)) {
-        fs.mkdirSync(libraryPath, { recursive: true });
-      }
-      
-      subfolders.forEach(folder => {
-        const folderPath = path.join(libraryPath, folder);
-        if (!fs.existsSync(folderPath)) {
-          fs.mkdirSync(folderPath, { recursive: true });
-        }
-      });
-      
-      // Save configuration
-      const config = {
-        libraryPath: selectedPath,
-        setupCompleted: true,
-        setupDate: new Date().toISOString()
-      };
-      
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-      
-      // Show success message
-      await dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Setup Complete!',
-        message: 'AutoDJ Library Created',
-        detail: `Your music library has been created at:\n${selectedPath}\n\nYou can now start downloading and processing music!`
-      });
-      
-    } catch (error) {
-      console.error('Error creating directories:', error);
-      await dialog.showErrorBox('Setup Error', `Could not create library folders: ${error.message}`);
-    }
-    
-  } catch (error) {
-    console.error('First-time setup error:', error);
-  }
-}
+
 
 function createWindow() {
   // Get screen dimensions
@@ -139,11 +55,8 @@ function createWindow() {
   );
 
   // Show window when ready to prevent flash
-  mainWindow.once('ready-to-show', async () => {
+  mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    
-    // Check for first-time setup
-    await checkFirstTimeSetup();
   });
 
   if (isDev) {
@@ -229,6 +142,45 @@ ipcMain.handle('window-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('create-library-structure', async (event, libraryPath) => {
+  try {
+    const subfolders = ['Downloads', 'Processed', 'Stems', 'Projects'];
+    const librarySubPath = path.join(libraryPath, 'Library');
+    
+    // Create main library directory
+    if (!fs.existsSync(libraryPath)) {
+      fs.mkdirSync(libraryPath, { recursive: true });
+    }
+    if (!fs.existsSync(librarySubPath)) {
+      fs.mkdirSync(librarySubPath, { recursive: true });
+    }
+    
+    // Create subfolders
+    subfolders.forEach(folder => {
+      const folderPath = path.join(librarySubPath, folder);
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error creating library structure:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('save-app-config', async (event, config) => {
+  try {
+    const configPath = path.join(os.homedir(), '.autodj-config.json');
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving config:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // Handler for loading audio files (for DJ mixing)

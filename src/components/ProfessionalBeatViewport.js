@@ -286,7 +286,7 @@ function ProfessionalBeatViewport({
     const canvasWidth = width / 2;
     const canvasHeight = height / 2;
     
-    // Clear canvas
+    // Clear canvas with darker background
     ctx.fillStyle = deck === 'A' ? '#0a1a0a' : '#1a1a00';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
@@ -296,55 +296,96 @@ function ProfessionalBeatViewport({
     const windowStart = Math.max(0, playTime - viewportTime / 2);
     const windowEnd = windowStart + viewportTime;
 
-    // Professional Serato-style frequency-colored waveform
-    const samplesPerPixel = Math.max(1, Math.floor(waveformData.length / canvasWidth));
+    // Higher resolution sampling for smoother waveforms
     const startSample = Math.floor((windowStart / track.duration) * waveformData.length);
     const endSample = Math.min(waveformData.length, Math.floor((windowEnd / track.duration) * waveformData.length));
     
-    // Draw layered stem waveforms (approximation using frequency bands)
+    // Enhanced layered stem waveforms with transparency and better sizing
     const stems = [
-      { key: 'vocals', color: '#ff4081', field: 'treble' },
-      { key: 'drums', color: '#ffc107', field: 'mid' },
-      { key: 'bass', color: '#2196f3', field: 'bass' },
-      { key: 'other', color: '#9c27b0', field: 'rms' }
+      { key: 'vocals', color: 'rgba(255, 64, 129, 0.8)', field: 'treble', layer: 0 },
+      { key: 'drums', color: 'rgba(255, 193, 7, 0.7)', field: 'mid', layer: 1 },
+      { key: 'bass', color: 'rgba(33, 150, 243, 0.8)', field: 'bass', layer: 2 },
+      { key: 'other', color: 'rgba(156, 39, 176, 0.6)', field: 'rms', layer: 3 }
     ];
 
-    const layerHeight = canvasHeight / stems.length;
+    // Draw background grid for better readability
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < 4; i++) {
+      const y = (canvasHeight / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasWidth, y);
+      ctx.stroke();
+    }
 
-    for (let x = 0; x < canvasWidth; x++) {
+    // Improved waveform rendering with better layering
+    for (let x = 0; x < canvasWidth; x += 0.5) { // Higher resolution
       const sampleIndex = startSample + Math.floor((x / canvasWidth) * (endSample - startSample));
       if (sampleIndex >= 0 && sampleIndex < waveformData.length) {
         const sample = waveformData[sampleIndex];
 
+        // Draw each stem layer with proper scaling and transparency
         stems.forEach((stem, idx) => {
-          const value = sample[stem.field] !== undefined ? sample[stem.field] : sample.rms;
-          const amplitude = Math.min(value, 1.0);
+          const value = sample[stem.field] !== undefined ? sample[stem.field] : sample.rms || 0;
+          const amplitude = Math.min(Math.max(value * 2, 0), 1.0); // Enhanced amplitude
+          const layerHeight = canvasHeight * 0.8; // Use 80% of canvas height
           const h = amplitude * layerHeight;
-          const yCenter = idx * layerHeight + layerHeight / 2;
+          const yCenter = canvasHeight / 2;
 
-          if (h > 1) {
-            ctx.fillStyle = stem.color;
+          if (h > 2) { // Minimum height threshold
+            // Create gradient for better visual depth
+            const gradient = ctx.createLinearGradient(0, yCenter - h/2, 0, yCenter + h/2);
+            gradient.addColorStop(0, stem.color);
+            gradient.addColorStop(0.5, stem.color.replace('0.', '0.9')); // More opaque in center
+            gradient.addColorStop(1, stem.color);
+            
+            ctx.fillStyle = gradient;
             ctx.fillRect(x, yCenter - h / 2, 1, h);
+            
+            // Add subtle outline for definition
+            ctx.strokeStyle = stem.color.replace(/0\.\d/, '1.0');
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x, yCenter - h / 2);
+            ctx.lineTo(x, yCenter + h / 2);
+            ctx.stroke();
           }
         });
 
-        // Optional peak indicator over the entire waveform
-        if (sample.peak > 0.9) {
-          ctx.fillStyle = 'rgba(255,255,255,0.5)';
-          ctx.fillRect(x, 0, 1, canvasHeight);
+        // Enhanced peak indicators
+        if (sample.peak && sample.peak > 0.85) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.fillRect(x, 0, 2, canvasHeight);
         }
       }
     }
     
-    // Draw time markers
-    ctx.strokeStyle = '#333';
+    // Draw playhead position
+    const playheadX = canvasWidth / 2;
+    ctx.strokeStyle = deck === 'A' ? '#00ff88' : '#ffff00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, 0);
+    ctx.lineTo(playheadX, canvasHeight);
+    ctx.stroke();
+    
+    // Draw time markers with better visibility
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    
     for (let i = 0; i <= viewportTime; i += 5) {
       const x = (i / viewportTime) * canvasWidth;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, canvasHeight);
       ctx.stroke();
+      
+      // Time labels
+      const timeLabel = Math.floor(windowStart + i);
+      ctx.fillText(`${Math.floor(timeLabel / 60)}:${(timeLabel % 60).toString().padStart(2, '0')}`, x + 2, 12);
     }
   };
   

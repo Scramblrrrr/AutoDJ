@@ -10,6 +10,7 @@ const UploadContainer = styled.div`
   height: 100vh;
   overflow-y: auto;
   background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  padding-bottom: 100px; /* Extra space at bottom for better scrolling */
 `;
 
 const Header = styled.div`
@@ -462,7 +463,7 @@ function UploadProcess() {
   const [totalJobs, setTotalJobs] = useState(0);
 
   useEffect(() => {
-    // Load existing tracks from storage
+    // Load existing tracks from storage (including downloaded ones)
     const existingTracks = storage.getTracks();
     const tracksAsFiles = existingTracks.map(track => ({
       id: track.id,
@@ -471,9 +472,33 @@ function UploadProcess() {
       status: track.status,
       progress: track.progress || 0,
       filePath: track.filePath,
-      stemsPath: track.stemsPath
+      stemsPath: track.stemsPath,
+      type: track.type || 'uploaded' // Include type (downloaded/uploaded)
     }));
     setFiles(tracksAsFiles);
+
+    // Set up a listener for new downloads
+    const handleStorageUpdate = () => {
+      const updatedTracks = storage.getTracks();
+      const updatedFiles = updatedTracks.map(track => ({
+        id: track.id,
+        name: track.name,
+        size: track.sizeFormatted || 'Unknown',
+        status: track.status,
+        progress: track.progress || 0,
+        filePath: track.filePath,
+        stemsPath: track.stemsPath,
+        type: track.type || 'uploaded'
+      }));
+      setFiles(updatedFiles);
+    };
+
+    // Listen for storage updates (when downloads are added)
+    window.addEventListener('storage-updated', handleStorageUpdate);
+    
+    return () => {
+      window.removeEventListener('storage-updated', handleStorageUpdate);
+    };
 
     // Set up progress listener
     fileManager.setupProgressListener((type, data) => {
