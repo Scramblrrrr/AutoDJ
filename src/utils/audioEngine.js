@@ -234,15 +234,19 @@ class AudioEngine {
         keyShift: 0 // Semitones shifted
       };
       
+      const waveform = this.generateWaveformData(
+        stems.vocals?.buffer || stems.drums?.buffer
+      );
+
       // Notify listeners of BPM and key detection with enhanced info
-      this.notifyListeners('bpmDetected', { 
-        bpm: originalBPM, 
+      this.notifyListeners('bpmDetected', {
+        bpm: originalBPM,
         bmp: originalBPM, // Keep both for compatibility
         originalBPM: originalBPM,
         currentBPM: originalBPM,
         pitchRatio: 1.0,
         beatGrid: beatGrid,
-        waveform: this.generateWaveformData(stems.vocals?.buffer || stems.drums?.buffer)
+        waveform
       });
       
       this.notifyListeners('keyDetected', { 
@@ -264,6 +268,7 @@ class AudioEngine {
         currentKey: originalKey,
         metadata: trackMetadata,
         beatGrid,
+        waveform,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
     } catch (error) {
@@ -328,12 +333,11 @@ class AudioEngine {
       const sampleRate = audioBuffer.sampleRate;
       const channelData = audioBuffer.getChannelData(0); // Use first channel
       
-      // Analyze first 60 seconds for comprehensive beat detection
-      const analyzeLength = Math.min(sampleRate * 60, channelData.length);
-      const analysisData = channelData.slice(0, analyzeLength);
-      
-      // Apply high-pass filter to emphasize beats
-      const filteredData = this.highPassFilter(analysisData, sampleRate, 60);
+      // Analyze the entire track for comprehensive beat detection. Previously
+      // this was capped at 60 seconds which meant the beat grid would only
+      // cover roughly the first 30 bars at ~120 BPM. Removing the limit ensures
+      // accurate beat markers for the full song length.
+      const filteredData = this.highPassFilter(channelData, sampleRate, 60);
       
       // Detect tempo and beat grid using autocorrelation
       const result = this.autocorrelationBPMWithGrid(filteredData, sampleRate);
@@ -480,7 +484,10 @@ class AudioEngine {
     const beatInterval = 60 / bpm;
     const beatGrid = [];
     
-    for (let time = 0; time < Math.min(duration, 60); time += beatInterval) {
+    // Cover the entire track when generating a fallback beat grid instead of
+    // limiting to the first 60 seconds. This prevents beat markers from
+    // disappearing on longer songs if BPM detection fails.
+    for (let time = 0; time < duration; time += beatInterval) {
       const beatNumber = Math.floor(time / beatInterval);
       const isDownbeat = beatNumber % 4 === 0;
       
@@ -513,7 +520,11 @@ class AudioEngine {
       startTime = detectedPeaks[0].time;
     }
     
-    const maxDuration = Math.min(duration, 60); // Analyze first 60 seconds
+    // Analyze the entire track by default. Previously this was limited to the
+    // first 60 seconds which caused beat markers to vanish once playback
+    // passed that point. Removing the cap ensures beat grids cover the whole
+    // song so the visual bars stay visible throughout.
+    const maxDuration = duration;
     let currentTime = startTime;
     let beatCount = 0;
     
@@ -1637,6 +1648,7 @@ class AudioEngine {
     const nextTrackStartTime = this.audioContext.currentTime + 0.05;
     this.startNextTrackPlayback(nextTrackStartTime);
 
+
     const fadeStart = nextTrackStartTime;
     const fadeEnd = fadeStart + fadeDuration / 1000;
 
@@ -1660,12 +1672,14 @@ class AudioEngine {
       this.updateCrossfaderUI(progress);
       if (progress < 1) {
         requestAnimationFrame(animate);
+
       } else {
         this.completeTransition();
       }
     };
 
     requestAnimationFrame(animate);
+
   }
 
   async performTempoMatchedTransition() {

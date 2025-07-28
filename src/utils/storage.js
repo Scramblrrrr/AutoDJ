@@ -33,11 +33,11 @@ class AutoDJStorage {
 
     if (!this.getSettings()) {
       this.setSettings({
-        downloadPath: './downloads',
-        processedPath: './processed',
+        downloadPath: './Library/Downloads',
+        processedPath: './Library/Processed',
         defaultQuality: '320',
         defaultFormat: 'wav',
-        autoProcess: true,
+        autoProcess: false,
         theme: 'dark',
         stemModel: 'htdemucs'
       });

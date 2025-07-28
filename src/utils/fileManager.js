@@ -10,11 +10,12 @@ const os = window.require ? window.require('os') : null;
 
 class FileManager {
   constructor() {
+    this.basePath = path ? path.join(os.homedir(), 'Music', 'AutoDJ') : '.';
     this.defaultPaths = {
-      downloads: path ? path.join(os.homedir(), 'Music', 'AutoDJ', 'Downloads') : './downloads',
-      processed: path ? path.join(os.homedir(), 'Music', 'AutoDJ', 'Processed') : './processed',
-      stems: path ? path.join(os.homedir(), 'Music', 'AutoDJ', 'Stems') : './stems',
-      temp: path ? path.join(os.homedir(), 'Music', 'AutoDJ', 'Temp') : './temp'
+      downloads: path ? path.join(this.basePath, 'Library', 'Downloads') : './Library/Downloads',
+      processed: path ? path.join(this.basePath, 'Library', 'Processed') : './Library/Processed',
+      stems: path ? path.join(this.basePath, 'Library', 'Stems') : './Library/Stems',
+      temp: path ? path.join(this.basePath, 'Temp') : './Temp'
     };
     
     this.ensureDirectories();
@@ -158,7 +159,7 @@ class FileManager {
     }
   }
 
-  async downloadAudio(url, outputDir = null) {
+  async downloadAudio(url, outputDir = null, downloadId = null) {
     const actualOutputDir = outputDir || this.defaultPaths.downloads;
     
     if (!ipcRenderer) {
@@ -180,7 +181,7 @@ class FileManager {
     }
 
     try {
-      const result = await ipcRenderer.invoke('download-audio', url, actualOutputDir);
+      const result = await ipcRenderer.invoke('download-audio', url, actualOutputDir, downloadId);
       
       // The Python script returns success info via stdout, but we need to parse it properly
       if (result && typeof result === 'string' && result.includes('SUCCESS:')) {

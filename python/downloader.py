@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class MusicDownloader:
-    def __init__(self, output_dir: str = "./downloads", quality: str = "320", format: str = "wav"):
+    def __init__(self, output_dir: str = "./Library/Downloads", quality: str = "320", format: str = "wav"):
         """
         Initialize the music downloader.
         

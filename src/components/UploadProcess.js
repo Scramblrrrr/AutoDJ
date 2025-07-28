@@ -586,11 +586,7 @@ function UploadProcess() {
     setSelectedFiles(prev => prev.filter(fileId => fileId !== id));
     storage.removeTrack(id);
 
-    // Also remove from file system if exists
-    const file = files.find(f => f.id === id);
-    if (file && file.filePath) {
-      fileManager.deleteFile(file.filePath);
-    }
+    // Do not delete the original file from disk
   };
 
   const removeSelectedFiles = () => {
