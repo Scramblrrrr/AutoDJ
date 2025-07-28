@@ -76,6 +76,7 @@
     ],
     "mac": {
       "category": "public.app-category.music",
+      "icon": "Assets/AI DJ - Logo.png",
       "target": [
         {
           "target": "dmg",
@@ -92,6 +93,7 @@
       "entitlementsInherit": "build-resources/entitlements.mac.plist"
     },
     "win": {
+      "icon": "Assets/AI DJ - Logo.ico",
       "target": [
         {
           "target": "nsis",
@@ -109,6 +111,7 @@
       "requestedExecutionLevel": "asInvoker"
     },
     "linux": {
+      "icon": "Assets/AI DJ - Logo.png",
       "target": [
         {
           "target": "AppImage",
@@ -130,7 +133,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AutoDJ"
+      "shortcutName": "AutoDJ",
+      "installerIcon": "Assets/AI DJ - Logo.ico",
+      "uninstallerIcon": "Assets/AI DJ - Logo.ico",
+      "installerHeaderIcon": "Assets/AI DJ - Logo.ico"
     },
     "dmg": {
       "title": "AutoDJ Installer",

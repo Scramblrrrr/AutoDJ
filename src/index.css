@@ -11,8 +11,15 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #1a1a1a;
+  background-color: transparent;
   color: #ffffff;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  background: transparent;
+  border-radius: 12px;
   overflow: hidden;
 }
 

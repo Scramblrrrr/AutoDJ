@@ -2,27 +2,134 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 
 // Simple dev check without external dependency
 const isDev = !app.isPackaged;
 
 let mainWindow;
 
+// First-time setup configuration
+async function checkFirstTimeSetup() {
+  const configPath = path.join(os.homedir(), '.autodj-config.json');
+  
+  try {
+    // Check if config exists
+    if (fs.existsSync(configPath)) {
+      return; // Already configured
+    }
+    
+    // Show first-time setup dialog
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Choose Location', 'Use Default'],
+      defaultId: 0,
+      title: 'Welcome to AutoDJ!',
+      message: 'First Time Setup',
+      detail: 'Where would you like to store your music library?\n\n• Downloaded music\n• Processed stems\n• DJ projects\n\nChoose a location or use the default Music folder.'
+    });
+    
+    let selectedPath;
+    
+    if (result.response === 0) {
+      // User wants to choose location
+      const folderResult = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory', 'createDirectory'],
+        title: 'Select AutoDJ Library Location',
+        defaultPath: path.join(os.homedir(), 'Music')
+      });
+      
+      if (folderResult.canceled) {
+        selectedPath = path.join(os.homedir(), 'Music', 'AutoDJ');
+      } else {
+        selectedPath = path.join(folderResult.filePaths[0], 'AutoDJ');
+      }
+    } else {
+      // Use default location
+      selectedPath = path.join(os.homedir(), 'Music', 'AutoDJ');
+    }
+    
+    // Create directory structure
+    const subfolders = ['Downloads', 'Processed', 'Stems', 'Projects'];
+    const libraryPath = path.join(selectedPath, 'Library');
+    
+    try {
+      if (!fs.existsSync(selectedPath)) {
+        fs.mkdirSync(selectedPath, { recursive: true });
+      }
+      if (!fs.existsSync(libraryPath)) {
+        fs.mkdirSync(libraryPath, { recursive: true });
+      }
+      
+      subfolders.forEach(folder => {
+        const folderPath = path.join(libraryPath, folder);
+        if (!fs.existsSync(folderPath)) {
+          fs.mkdirSync(folderPath, { recursive: true });
+        }
+      });
+      
+      // Save configuration
+      const config = {
+        libraryPath: selectedPath,
+        setupCompleted: true,
+        setupDate: new Date().toISOString()
+      };
+      
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      
+      // Show success message
+      await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Setup Complete!',
+        message: 'AutoDJ Library Created',
+        detail: `Your music library has been created at:\n${selectedPath}\n\nYou can now start downloading and processing music!`
+      });
+      
+    } catch (error) {
+      console.error('Error creating directories:', error);
+      await dialog.showErrorBox('Setup Error', `Could not create library folders: ${error.message}`);
+    }
+    
+  } catch (error) {
+    console.error('First-time setup error:', error);
+  }
+}
+
 function createWindow() {
+  // Get screen dimensions
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  
+  // Calculate window size (90% of screen size)
+  const windowWidth = Math.floor(screenWidth * 0.9);
+  const windowHeight = Math.floor(screenHeight * 0.9);
+  
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: windowWidth,
+    height: windowHeight,
     minWidth: 1200,
     minHeight: 700,
+    center: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
       enableRemoteModule: true
     },
-    // icon: isDev 
-    //   ? path.join(__dirname, '../Assets/AI DJ - Logo.png')
-    //   : path.join(__dirname, './Assets/AI DJ - Logo.png'),
-    titleBarStyle: 'default'
+    icon: isDev 
+      ? path.join(__dirname, '../Assets/AI DJ - Logo.ico')
+      : path.join(__dirname, './Assets/AI DJ - Logo.ico'),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#1a1a1a',
+      symbolColor: '#ffffff',
+      height: 40
+    },
+    frame: false,
+    backgroundColor: '#1a1a1a',
+    show: false, // Don't show until ready
+    webSecurity: false,
+    roundedCorners: true
   });
 
   mainWindow.loadURL(
@@ -30,6 +137,14 @@ function createWindow() {
       ? 'http://localhost:3000' 
       : `file://${path.join(__dirname, './index.html')}`
   );
+
+  // Show window when ready to prevent flash
+  mainWindow.once('ready-to-show', async () => {
+    mainWindow.show();
+    
+    // Check for first-time setup
+    await checkFirstTimeSetup();
+  });
 
   if (isDev) {
     mainWindow.webContents.openDevTools();
@@ -81,6 +196,39 @@ ipcMain.handle('open-file-location', async (event, filePath) => {
     console.error('Error opening file location:', error);
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('get-app-config', async () => {
+  const configPath = path.join(os.homedir(), '.autodj-config.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      return config;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error reading config:', error);
+    return null;
+  }
+});
+
+// Window control handlers for custom title bar
+ipcMain.handle('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+});
+
+ipcMain.handle('window-close', () => {
+  if (mainWindow) mainWindow.close();
 });
 
 // Handler for loading audio files (for DJ mixing)

@@ -5,12 +5,22 @@ import Dashboard from './components/Dashboard';
 import AIDJ from './components/AIDJ';
 import UploadProcess from './components/UploadProcess';
 import MusicDownloader from './components/MusicDownloader';
+import CustomTitleBar from './components/CustomTitleBar';
 
 const AppContainer = styled.div`
   display: flex;
+  flex-direction: column;
   height: 100vh;
   background: #1a1a1a;
   color: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+`;
+
+const ContentContainer = styled.div`
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 `;
 
 const Sidebar = styled.div`
@@ -87,30 +97,33 @@ function App() {
 
   return (
     <AppContainer>
-      <Sidebar>
-        <Logo>
-          <img src="./Assets/AI DJ - Logo.png" alt="AutoDJ Logo" />
-          <h1>AutoDJ</h1>
-        </Logo>
+      <CustomTitleBar />
+      <ContentContainer>
+        <Sidebar>
+          <Logo>
+            <img src="./Assets/AI DJ - Logo.png" alt="AutoDJ Logo" />
+            <h1>AutoDJ</h1>
+          </Logo>
+          
+          {tabs.map(tab => {
+            const IconComponent = tab.icon;
+            return (
+              <NavItem
+                key={tab.id}
+                $active={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <IconComponent size={20} />
+                <span>{tab.name}</span>
+              </NavItem>
+            );
+          })}
+        </Sidebar>
         
-        {tabs.map(tab => {
-          const IconComponent = tab.icon;
-          return (
-            <NavItem
-              key={tab.id}
-              $active={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <IconComponent size={20} />
-              <span>{tab.name}</span>
-            </NavItem>
-          );
-        })}
-      </Sidebar>
-      
-      <MainContent>
-        <ActiveComponent />
-      </MainContent>
+        <MainContent>
+          <ActiveComponent />
+        </MainContent>
+      </ContentContainer>
     </AppContainer>
   );
 }

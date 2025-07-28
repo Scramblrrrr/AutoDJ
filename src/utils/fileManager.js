@@ -10,15 +10,45 @@ const os = window.require ? window.require('os') : null;
 
 class FileManager {
   constructor() {
-    this.basePath = path ? path.join(os.homedir(), 'Music', 'AutoDJ') : '.';
-    this.defaultPaths = {
-      downloads: path ? path.join(this.basePath, 'Library', 'Downloads') : './Library/Downloads',
-      processed: path ? path.join(this.basePath, 'Library', 'Processed') : './Library/Processed',
-      stems: path ? path.join(this.basePath, 'Library', 'Stems') : './Library/Stems',
-      temp: path ? path.join(this.basePath, 'Temp') : './Temp'
-    };
-    
-    this.ensureDirectories();
+    this.basePath = null;
+    this.defaultPaths = {};
+    this.initializePaths();
+  }
+
+  async initializePaths() {
+    try {
+      // Get configured path from main process
+      const config = await ipcRenderer?.invoke('get-app-config');
+      
+      if (config && config.libraryPath) {
+        this.basePath = config.libraryPath;
+      } else {
+        // Fallback to default
+        this.basePath = path ? path.join(os.homedir(), 'Music', 'AutoDJ') : '.';
+      }
+      
+      this.defaultPaths = {
+        downloads: path ? path.join(this.basePath, 'Library', 'Downloads') : './Library/Downloads',
+        processed: path ? path.join(this.basePath, 'Library', 'Processed') : './Library/Processed',
+        stems: path ? path.join(this.basePath, 'Library', 'Stems') : './Library/Stems',
+        projects: path ? path.join(this.basePath, 'Library', 'Projects') : './Library/Projects',
+        temp: path ? path.join(this.basePath, 'Temp') : './Temp'
+      };
+      
+      this.ensureDirectories();
+    } catch (error) {
+      console.error('Error initializing paths:', error);
+      // Fallback to default paths
+      this.basePath = path ? path.join(os.homedir(), 'Music', 'AutoDJ') : '.';
+      this.defaultPaths = {
+        downloads: path ? path.join(this.basePath, 'Library', 'Downloads') : './Library/Downloads',
+        processed: path ? path.join(this.basePath, 'Library', 'Processed') : './Library/Processed',
+        stems: path ? path.join(this.basePath, 'Library', 'Stems') : './Library/Stems',
+        projects: path ? path.join(this.basePath, 'Library', 'Projects') : './Library/Projects',
+        temp: path ? path.join(this.basePath, 'Temp') : './Temp'
+      };
+      this.ensureDirectories();
+    }
   }
 
   async ensureDirectories() {
