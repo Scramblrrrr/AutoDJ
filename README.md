@@ -126,7 +126,7 @@ npm run electron-pack
 - **URL Input**: Paste YouTube or SoundCloud links
 - **Quality Selection**: Choose audio quality from 128kbps to 320kbps
 - **Format Options**: Download in MP3, WAV, FLAC, or M4A format (WAV is used by default)
-- **Auto Processing**: Optionally process stems immediately after download
+ - **Manual Processing**: After download, process stems from the **Upload & Process** tab
 
 ## Technical Architecture
 
