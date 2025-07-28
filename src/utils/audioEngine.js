@@ -22,6 +22,9 @@ class AudioEngine {
     this.transitionStartTime = null;
     this.hasStartedTransition = false;
     this.nextTrackPitchRatio = 1.0;
+
+    // Timer for scheduled automatic transitions
+    this.autoTransitionTimeout = null;
     
     // Mixing parameters
     this.stemVolumes = {
@@ -1100,13 +1103,28 @@ class AudioEngine {
     if (!this.autoMixEnabled || !this.nextTrack || this.hasStartedTransition || this.isTransitioning || this.isSeeking) {
       return;
     }
-    
+
+    if (this.autoTransitionTimeout) return;
+
     const currentDuration = this.currentTrack.duration || this.duration;
     const timeRemaining = currentDuration - this.currentTime;
-    
-    // Start intelligent layering 30 seconds before track ends
-    if (timeRemaining <= 30 && timeRemaining > 25) {
-      console.log(`🎵 AI DJ: Starting intelligent transition with ${Math.round(timeRemaining)}s remaining`);
+
+    // Look ahead for an optimal transition point as the track nears the end
+    if (timeRemaining <= 35 && timeRemaining > 8) {
+      const optimal = this.findOptimalTransitionPoint();
+      const wait = optimal.time - this.currentTime;
+
+      if (wait > 0 && wait <= timeRemaining) {
+        console.log(`🎵 AI DJ: Scheduled transition in ${wait.toFixed(1)}s (${optimal.quality})`);
+        this.autoTransitionTimeout = setTimeout(() => {
+          this.autoTransitionTimeout = null;
+          this.hasStartedTransition = true;
+          this.isTransitioning = true;
+          this.startIntelligentTransition();
+        }, wait * 1000);
+      }
+    } else if (timeRemaining <= 8) {
+      // Fallback - ensure we transition before the track ends
       this.hasStartedTransition = true;
       this.isTransitioning = true;
       this.startIntelligentTransition();
@@ -1130,6 +1148,11 @@ class AudioEngine {
     }
     
     console.log('🚀 MANUAL TRANSITION TRIGGERED - Finding best transition point with advanced techniques!');
+
+    if (this.autoTransitionTimeout) {
+      clearTimeout(this.autoTransitionTimeout);
+      this.autoTransitionTimeout = null;
+    }
     
     // Force immediate intelligent transition with enhanced techniques
     this.hasStartedTransition = true;
@@ -1762,7 +1785,12 @@ class AudioEngine {
     
     // Reset crossfader to center
     this.setCrossfade(0.5);
-    
+
+    if (this.autoTransitionTimeout) {
+      clearTimeout(this.autoTransitionTimeout);
+      this.autoTransitionTimeout = null;
+    }
+
     // Notify UI of completion
     this.notifyListeners('transitionComplete', {
       newCurrentTrack: this.currentTrack,
@@ -1772,6 +1800,10 @@ class AudioEngine {
 
   setAutoMix(enabled) {
     this.autoMixEnabled = enabled;
+    if (!enabled && this.autoTransitionTimeout) {
+      clearTimeout(this.autoTransitionTimeout);
+      this.autoTransitionTimeout = null;
+    }
     this.notifyListeners('autoMixChanged', { enabled });
   }
 
