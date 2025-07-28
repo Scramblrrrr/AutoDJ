@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import styled from 'styled-components';
 
 const ViewportContainer = styled.div`
@@ -196,6 +196,9 @@ function ProfessionalBeatViewport({
 
   const currentTimeRef = useRef(currentTime);
   const deckBTimeRef = useRef(deckBCurrentTime);
+  const animationFrameRef = useRef(null);
+  const lastUpdateTimeRef = useRef(0);
+
 
   const [zoom, setZoom] = useState(1.0); // 1.0 = normal, 2.0 = 2x zoom
   const [viewportTime, setViewportTime] = useState(20); // seconds visible in viewport
@@ -208,8 +211,28 @@ function ProfessionalBeatViewport({
     deckBTimeRef.current = deckBCurrentTime;
   }, [deckBCurrentTime]);
   
-  // Optimized rendering - only update when data changes or time advances significantly
+  const FRAME_RATE = 1000 / 30; // 30 FPS instead of 60
+
+  const updateViewports = useCallback((timestamp) => {
+    if (timestamp - lastUpdateTimeRef.current >= FRAME_RATE) {
+      drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTimeRef.current);
+      drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBTimeRef.current);
+      drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTimeRef.current);
+      drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBTimeRef.current);
+      lastUpdateTimeRef.current = timestamp;
+    }
+    animationFrameRef.current = requestAnimationFrame(updateViewports);
+  }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
+
+  const startAnimation = useCallback(() => {
+    if (!animationFrameRef.current) {
+      animationFrameRef.current = requestAnimationFrame(updateViewports);
+    }
+  }, [updateViewports]);
+
+  // Start or restart animation when track data is available
   useEffect(() => {
+
     let animationFrame;
     let lastUpdateTime = 0;
     const FRAME_RATE = 1000 / 30; // 30 FPS instead of 60
@@ -227,16 +250,31 @@ function ProfessionalBeatViewport({
     };
     
     // Only start animation if we have track data
+
     if (deckATrack || deckBTrack) {
-      animationFrame = requestAnimationFrame(updateViewports);
+      startAnimation();
     }
-    
     return () => {
-      if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
+  }, [deckATrack, deckBTrack, startAnimation]);
+
+  // Ensure animation begins when playback starts
+  useEffect(() => {
+    startAnimation();
+    currentTimeRef.current = currentTime;
+  }, [currentTime, startAnimation]);
+
+  useEffect(() => {
+    startAnimation();
+    deckBTimeRef.current = deckBCurrentTime;
+  }, [deckBCurrentTime, startAnimation]);
+
   }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
+
   
   
   const drawDeckWaveform = (deck, track, waveformData, canvas, playTime) => {
