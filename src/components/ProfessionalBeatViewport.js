@@ -20,6 +20,16 @@ const DeckViewport = styled.div`
   background: linear-gradient(90deg, #111 0%, #1a1a1a 100%);
 `;
 
+const DeckContent = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transform: ${props => (props.$mirrored ? 'scaleX(-1)' : 'none')};
+  transform-origin: center;
+`;
+
 const DeckHeader = styled.div`
   position: absolute;
   top: 0;
@@ -345,7 +355,11 @@ function ProfessionalBeatViewport({
   const handleWaveformClick = (deck, event) => {
     const rect = event.target.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const clickRatio = x / rect.width;
+    let clickRatio = x / rect.width;
+
+    if (deck === 'B') {
+      clickRatio = 1 - clickRatio; // mirrored orientation
+    }
     
     const windowStart = deck === 'A' ? 
       Math.max(0, currentTime - viewportTime / 2) :
@@ -411,55 +425,57 @@ function ProfessionalBeatViewport({
             {deckATrack?.bmp || deckATrack?.bpm || 120} BPM
           </div>
         </DeckHeader>
-        
-        <WaveformCanvas 
-          ref={deckAWaveformRef}
-          onClick={(e) => handleWaveformClick('A', e)}
-        />
-        
-        <BeatGridCanvas ref={deckABeatGridRef} />
-        
-        <PlayheadLine />
-        
-        <CuePointsOverlay>
-          {generateCuePoints(deckATrack).map((cue, index) => {
-            const position = calculateTimePosition(cue.time, currentTime, deckATrack?.duration);
-            return position >= 0 ? (
-              <CuePoint
-                key={index}
-                $position={position}
-                $color={cue.color}
-                $label={cue.label}
-                onClick={() => onCuePointClick && onCuePointClick('A', cue)}
-              />
-            ) : null;
+
+        <DeckContent>
+          <WaveformCanvas
+            ref={deckAWaveformRef}
+            onClick={(e) => handleWaveformClick('A', e)}
+          />
+
+          <BeatGridCanvas ref={deckABeatGridRef} />
+
+          <PlayheadLine />
+
+          <CuePointsOverlay>
+            {generateCuePoints(deckATrack).map((cue, index) => {
+              const position = calculateTimePosition(cue.time, currentTime, deckATrack?.duration);
+              return position >= 0 ? (
+                <CuePoint
+                  key={index}
+                  $position={position}
+                  $color={cue.color}
+                  $label={cue.label}
+                  onClick={() => onCuePointClick && onCuePointClick('A', cue)}
+                />
+              ) : null;
+            })}
+          </CuePointsOverlay>
+
+          {generateLoopRegions(deckATrack).map((loop, index) => {
+            const startPos = calculateTimePosition(loop.start, currentTime, deckATrack?.duration);
+            const endPos = calculateTimePosition(loop.end, currentTime, deckATrack?.duration);
+
+            if (startPos >= 0 && endPos >= 0) {
+              return (
+                <LoopRegion
+                  key={index}
+                  $start={startPos}
+                  $width={endPos - startPos}
+                  $beats={loop.beats}
+                  onClick={() => onLoopRegionClick && onLoopRegionClick('A', loop)}
+                />
+              );
+            }
+            return null;
           })}
-        </CuePointsOverlay>
-        
-        {generateLoopRegions(deckATrack).map((loop, index) => {
-          const startPos = calculateTimePosition(loop.start, currentTime, deckATrack?.duration);
-          const endPos = calculateTimePosition(loop.end, currentTime, deckATrack?.duration);
-          
-          if (startPos >= 0 && endPos >= 0) {
-            return (
-              <LoopRegion
-                key={index}
-                $start={startPos}
-                $width={endPos - startPos}
-                $beats={loop.beats}
-                onClick={() => onLoopRegionClick && onLoopRegionClick('A', loop)}
-              />
-            );
-          }
-          return null;
-        })}
-        
-        <StemActivityBar>
-          <StemActivity $color="#ff4081" $activity={0.8} title="Vocals" />
-          <StemActivity $color="#ffc107" $activity={1.0} title="Drums" />
-          <StemActivity $color="#2196f3" $activity={0.9} title="Bass" />
-          <StemActivity $color="#9c27b0" $activity={0.6} title="Other" />
-        </StemActivityBar>
+
+          <StemActivityBar>
+            <StemActivity $color="#ff4081" $activity={0.8} title="Vocals" />
+            <StemActivity $color="#ffc107" $activity={1.0} title="Drums" />
+            <StemActivity $color="#2196f3" $activity={0.9} title="Bass" />
+            <StemActivity $color="#9c27b0" $activity={0.6} title="Other" />
+          </StemActivityBar>
+        </DeckContent>
       </DeckViewport>
       
       {/* Deck B Viewport */}
@@ -473,55 +489,57 @@ function ProfessionalBeatViewport({
             {deckBTrack?.bmp || deckBTrack?.bpm || 120} BPM
           </div>
         </DeckHeader>
-        
-        <WaveformCanvas 
-          ref={deckBWaveformRef}
-          onClick={(e) => handleWaveformClick('B', e)}
-        />
-        
-        <BeatGridCanvas ref={deckBBeatGridRef} />
-        
-        <PlayheadLine />
-        
-        <CuePointsOverlay>
-          {generateCuePoints(deckBTrack).map((cue, index) => {
-            const position = calculateTimePosition(cue.time, deckBCurrentTime, deckBTrack?.duration);
-            return position >= 0 ? (
-              <CuePoint
-                key={index}
-                $position={position}
-                $color={cue.color}
-                $label={cue.label}
-                onClick={() => onCuePointClick && onCuePointClick('B', cue)}
-              />
-            ) : null;
+
+        <DeckContent $mirrored>
+          <WaveformCanvas
+            ref={deckBWaveformRef}
+            onClick={(e) => handleWaveformClick('B', e)}
+          />
+
+          <BeatGridCanvas ref={deckBBeatGridRef} />
+
+          <PlayheadLine />
+
+          <CuePointsOverlay>
+            {generateCuePoints(deckBTrack).map((cue, index) => {
+              const position = calculateTimePosition(cue.time, deckBCurrentTime, deckBTrack?.duration);
+              return position >= 0 ? (
+                <CuePoint
+                  key={index}
+                  $position={position}
+                  $color={cue.color}
+                  $label={cue.label}
+                  onClick={() => onCuePointClick && onCuePointClick('B', cue)}
+                />
+              ) : null;
+            })}
+          </CuePointsOverlay>
+
+          {generateLoopRegions(deckBTrack).map((loop, index) => {
+            const startPos = calculateTimePosition(loop.start, deckBCurrentTime, deckBTrack?.duration);
+            const endPos = calculateTimePosition(loop.end, deckBCurrentTime, deckBTrack?.duration);
+
+            if (startPos >= 0 && endPos >= 0) {
+              return (
+                <LoopRegion
+                  key={index}
+                  $start={startPos}
+                  $width={endPos - startPos}
+                  $beats={loop.beats}
+                  onClick={() => onLoopRegionClick && onLoopRegionClick('B', loop)}
+                />
+              );
+            }
+            return null;
           })}
-        </CuePointsOverlay>
-        
-        {generateLoopRegions(deckBTrack).map((loop, index) => {
-          const startPos = calculateTimePosition(loop.start, deckBCurrentTime, deckBTrack?.duration);
-          const endPos = calculateTimePosition(loop.end, deckBCurrentTime, deckBTrack?.duration);
-          
-          if (startPos >= 0 && endPos >= 0) {
-            return (
-              <LoopRegion
-                key={index}
-                $start={startPos}
-                $width={endPos - startPos}
-                $beats={loop.beats}
-                onClick={() => onLoopRegionClick && onLoopRegionClick('B', loop)}
-              />
-            );
-          }
-          return null;
-        })}
-        
-        <StemActivityBar>
-          <StemActivity $color="#ff4081" $activity={0.3} title="Vocals" />
-          <StemActivity $color="#ffc107" $activity={0.8} title="Drums" />
-          <StemActivity $color="#2196f3" $activity={0.9} title="Bass" />
-          <StemActivity $color="#9c27b0" $activity={0.5} title="Other" />
-        </StemActivityBar>
+
+          <StemActivityBar>
+            <StemActivity $color="#ff4081" $activity={0.3} title="Vocals" />
+            <StemActivity $color="#ffc107" $activity={0.8} title="Drums" />
+            <StemActivity $color="#2196f3" $activity={0.9} title="Bass" />
+            <StemActivity $color="#9c27b0" $activity={0.5} title="Other" />
+          </StemActivityBar>
+        </DeckContent>
       </DeckViewport>
       
       {/* Zoom Controls */}
