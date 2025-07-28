@@ -234,15 +234,19 @@ class AudioEngine {
         keyShift: 0 // Semitones shifted
       };
       
+      const waveform = this.generateWaveformData(
+        stems.vocals?.buffer || stems.drums?.buffer
+      );
+
       // Notify listeners of BPM and key detection with enhanced info
-      this.notifyListeners('bpmDetected', { 
-        bpm: originalBPM, 
+      this.notifyListeners('bpmDetected', {
+        bpm: originalBPM,
         bmp: originalBPM, // Keep both for compatibility
         originalBPM: originalBPM,
         currentBPM: originalBPM,
         pitchRatio: 1.0,
         beatGrid: beatGrid,
-        waveform: this.generateWaveformData(stems.vocals?.buffer || stems.drums?.buffer)
+        waveform
       });
       
       this.notifyListeners('keyDetected', { 
@@ -264,6 +268,7 @@ class AudioEngine {
         currentKey: originalKey,
         metadata: trackMetadata,
         beatGrid,
+        waveform,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
     } catch (error) {
@@ -513,7 +518,11 @@ class AudioEngine {
       startTime = detectedPeaks[0].time;
     }
     
-    const maxDuration = Math.min(duration, 60); // Analyze first 60 seconds
+    // Analyze the entire track by default. Previously this was limited to the
+    // first 60 seconds which caused beat markers to vanish once playback
+    // passed that point. Removing the cap ensures beat grids cover the whole
+    // song so the visual bars stay visible throughout.
+    const maxDuration = duration;
     let currentTime = startTime;
     let beatCount = 0;
     
