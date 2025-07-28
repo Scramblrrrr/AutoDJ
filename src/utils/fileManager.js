@@ -293,10 +293,17 @@ class FileManager {
     }
 
     try {
-      const { shell } = window.require('electron');
-      shell.showItemInFolder(filePath);
+      // Use IPC to open file location from main process
+      await ipcRenderer.invoke('open-file-location', filePath);
     } catch (error) {
       console.error('Error opening file location:', error);
+      // Fallback: try to use shell directly
+      try {
+        const { shell } = window.require('electron');
+        shell.showItemInFolder(filePath);
+      } catch (fallbackError) {
+        console.error('Fallback shell method also failed:', fallbackError);
+      }
     }
   }
 

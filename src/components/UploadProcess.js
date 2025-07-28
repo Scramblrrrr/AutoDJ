@@ -856,32 +856,6 @@ function UploadProcess() {
         </DropZone>
 
         <ActionButtons>
-          <button 
-            className="btn-secondary" 
-            onClick={async () => {
-              try {
-                console.log('Testing Python execution...');
-                const { ipcRenderer } = window.require('electron');
-                
-                // Set up progress listener to see output
-                ipcRenderer.on('stem-progress', (event, data) => {
-                  console.log('Python test output:', data);
-                });
-                
-                await ipcRenderer.invoke('test-python');
-                console.log('Python test completed successfully');
-                
-                // Clean up listener
-                setTimeout(() => {
-                  ipcRenderer.removeAllListeners('stem-progress');
-                }, 1000);
-              } catch (error) {
-                console.error('Python test failed:', error);
-              }
-            }}
-          >
-            🐍 Test Python
-          </button>
           {files.length > 0 && (
             <>
               <button 

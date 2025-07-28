@@ -942,10 +942,28 @@ function MusicDownloader() {
               fontSize: '14px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+              gap: '8px',
+              marginBottom: '8px'
             }}>
               <CheckCircle size={16} />
               After downloading, process stems from the Upload & Process page
+            </div>
+            <div style={{ 
+              padding: '12px', 
+              background: '#2a2a1a', 
+              border: '1px solid #4a4a2a', 
+              borderRadius: '8px',
+              color: '#ffdd88',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <FolderOpen size={14} />
+              <div>
+                <strong>Download Location:</strong><br/>
+                {outputPath || 'No path selected'}
+              </div>
             </div>
           </div>
         </OutputSettings>

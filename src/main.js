@@ -72,6 +72,17 @@ ipcMain.handle('select-folder', async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('open-file-location', async (event, filePath) => {
+  const { shell } = require('electron');
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening file location:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Handler for loading audio files (for DJ mixing)
 ipcMain.handle('load-audio-file', async (event, filePath) => {
   return new Promise((resolve, reject) => {
@@ -102,49 +113,7 @@ ipcMain.handle('load-audio-file', async (event, filePath) => {
   });
 });
 
-// Add a simple test handler first
-ipcMain.handle('test-python', async (event) => {
-  return new Promise((resolve, reject) => {
-    const testScriptPath = isDev 
-      ? path.join(__dirname, '../python/test_simple.py')
-      : path.join(process.resourcesPath, 'python/test_simple.py');
-    console.log('Testing Python with simple script:', testScriptPath);
-    
-    const pythonProcess = spawn('py', ['-3', '-u', testScriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: process.env
-    });
 
-    let output = '';
-    
-    pythonProcess.stdout.on('data', (data) => {
-      const dataStr = data.toString();
-      console.log('TEST stdout:', dataStr);
-      output += dataStr;
-      event.sender.send('stem-progress', `TEST: ${dataStr}`);
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      const dataStr = data.toString();
-      console.log('TEST stderr:', dataStr);
-      event.sender.send('stem-progress', `TEST ERROR: ${dataStr}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      console.log('Test Python process closed with code:', code);
-      if (code === 0) {
-        resolve(output);
-      } else {
-        reject(new Error(`Test failed with code ${code}`));
-      }
-    });
-
-    pythonProcess.on('error', (err) => {
-      console.log('Test Python spawn error:', err);
-      reject(err);
-    });
-  });
-});
 
 ipcMain.handle('process-stems', async (event, filePath, outputDir) => {
   return new Promise((resolve, reject) => {

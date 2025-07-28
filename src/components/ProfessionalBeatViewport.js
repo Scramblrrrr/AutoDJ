@@ -273,8 +273,6 @@ function ProfessionalBeatViewport({
     deckBTimeRef.current = deckBCurrentTime;
   }, [deckBCurrentTime, startAnimation]);
 
-  }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
-
   
   
   const drawDeckWaveform = (deck, track, waveformData, canvas, playTime) => {
