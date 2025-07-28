@@ -91,19 +91,83 @@ class MusicDownloader:
             Dictionary with video info or None if failed
         """
         try:
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            # Enhanced yt-dlp options for better title extraction
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'writeinfojson': False,
+                'writesubtitles': False,
+                'ignoreerrors': True,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
+                # Get the title with comprehensive fallbacks
+                title = info.get('title', '')
+                
+                # Log the raw info for debugging
+                print(f"DEBUG: Raw title from yt-dlp: '{title}'")
+                print(f"DEBUG: Available title fields: {[k for k in info.keys() if 'title' in k.lower()]}")
+                
+                # If title is generic or contains YouTube artifacts, try alternatives
+                if not title or 'youtube video #' in title.lower() or len(title) < 5:
+                    print("DEBUG: Title appears generic, trying alternatives...")
+                    # Try alternative title fields
+                    alternatives = [
+                        info.get('alt_title'),
+                        info.get('display_title'), 
+                        info.get('fulltitle'),
+                        info.get('track'),
+                        info.get('album'),
+                    ]
+                    
+                    for alt in alternatives:
+                        if alt and len(alt) > 5 and 'youtube video #' not in alt.lower():
+                            print(f"DEBUG: Using alternative title: '{alt}'")
+                            title = alt
+                            break
+                    
+                    # If still no good title, try to extract from URL or description
+                    if not title or title == 'Unknown Title':
+                        # Try to extract from description or other fields
+                        desc = info.get('description', '')
+                        if desc and len(desc) > 10:
+                            # Look for title patterns in description
+                            import re
+                            title_match = re.search(r'^([^-\n]+(?:-[^-\n]+)?)', desc.strip())
+                            if title_match:
+                                potential_title = title_match.group(1).strip()
+                                if len(potential_title) > 5:
+                                    print(f"DEBUG: Extracted from description: '{potential_title}'")
+                                    title = potential_title
+                        
+                        # Final fallback
+                        if not title or title == 'Unknown Title':
+                            title = f"Track from {info.get('uploader', 'Unknown')}"
+                
+                # Get artist with fallbacks
+                artist = (info.get('artist') or 
+                         info.get('creator') or 
+                         info.get('uploader') or 
+                         'Unknown Artist')
+                
+                # Clean up artist if it's a channel name
+                if artist and ('- Topic' in artist or 'VEVO' in artist):
+                    artist = artist.replace('- Topic', '').replace('VEVO', '').strip()
+                
                 return {
-                    'title': info.get('title', 'Unknown Title'),
-                    'artist': info.get('uploader', 'Unknown Artist'),
+                    'title': title,
+                    'artist': artist,
                     'duration': info.get('duration', 0),
                     'duration_string': self._format_duration(info.get('duration', 0)),
                     'platform': self._get_platform(url),
                     'thumbnail': info.get('thumbnail'),
                     'view_count': info.get('view_count', 0),
                     'upload_date': info.get('upload_date', ''),
-                    'description': info.get('description', '')
+                    'description': info.get('description', ''),
+                    'raw_info': {k: v for k, v in info.items() if k in ['title', 'alt_title', 'display_title', 'fulltitle', 'track', 'artist', 'creator', 'uploader']}
                 }
         except Exception as e:
             logger.error(f"Error extracting video info: {str(e)}")
@@ -196,30 +260,14 @@ class MusicDownloader:
             logger.info(f"Video info: {video_info['title']} by {video_info['artist']}")
             print(f"PROGRESS: 10% - Found: {video_info['title']}")
             
-            # Set up filename with better sanitization
-            if custom_filename:
-                filename = self.sanitize_filename(custom_filename)
-            else:
-                # Create a clean filename from artist and title
-                artist = video_info.get('artist', 'Unknown Artist')
-                title = video_info.get('title', 'Unknown Title')
-                
-                # Clean up the title to remove YouTube artifacts
-                clean_title = title
-                clean_title = clean_title.replace('youtube video #', '').strip()
-                clean_title = ' '.join(clean_title.split())  # Remove extra whitespace
-                
-                filename = self.sanitize_filename(f"{artist} - {clean_title}")
+            # Let yt-dlp generate the filename automatically for better compatibility
+            print(f"PROGRESS: 12% - Using yt-dlp automatic filename generation")
             
-            print(f"PROGRESS: 12% - Using filename: {filename}")
-            
-            # Update yt-dlp options with progress hook and explicit filename
+            # Update yt-dlp options with progress hook and automatic filename
             download_opts = self.ydl_opts.copy()
             download_opts['progress_hooks'] = [self.download_progress_hook]
-            # Force the exact filename we want
-            download_opts['outtmpl'] = str(self.output_dir / f"{filename}.%(ext)s")
-            # Also set restrictfilenames to prevent yt-dlp from changing our filename
-            download_opts['restrictfilenames'] = True
+            # Use yt-dlp's default filename generation which works better
+            download_opts['outtmpl'] = str(self.output_dir / "%(title)s.%(ext)s")
             
             print("PROGRESS: 15% - Starting download...")
             
@@ -236,31 +284,20 @@ class MusicDownloader:
                     else:
                         raise e
             
-            # Find the downloaded file and ensure it exists
-            output_pattern = f"{filename}.{self.format}"
-            output_file = self.output_dir / output_pattern
+            # Find the downloaded file - look for the most recent file in the output directory
+            # This is more reliable than trying to guess the exact filename
+            existing_files = list(self.output_dir.glob(f"*.{self.format}"))
+            if not existing_files:
+                # Try other common extensions
+                for ext in ['wav', 'mp3', 'flac', 'm4a']:
+                    existing_files.extend(list(self.output_dir.glob(f"*.{ext}")))
             
-            # Sometimes the extension might be different, so search for files
-            if not output_file.exists():
-                possible_files = list(self.output_dir.glob(f"{filename}.*"))
-                if possible_files:
-                    output_file = possible_files[0]
-                    logger.info(f"Found alternative file: {output_file}")
-                else:
-                    # Search for any files with similar names (in case of title differences)
-                    similar_files = []
-                    # Try with video title
-                    similar_files.extend(list(self.output_dir.glob(f"*{video_info['title'][:20]}*")))
-                    # Try with sanitized filename
-                    base_name = filename.split(' - ')[0] if ' - ' in filename else filename[:20]
-                    similar_files.extend(list(self.output_dir.glob(f"*{base_name}*")))
-                    
-                    if similar_files:
-                        # Pick the most recent file
-                        output_file = max(similar_files, key=lambda f: f.stat().st_mtime)
-                        logger.info(f"Found similar file: {output_file}")
-                    else:
-                        raise RuntimeError(f"Downloaded file not found. Expected: {output_pattern}")
+            if existing_files:
+                # Pick the most recently created file (most likely the one we just downloaded)
+                output_file = max(existing_files, key=lambda f: f.stat().st_mtime)
+                logger.info(f"Found downloaded file: {output_file}")
+            else:
+                raise RuntimeError(f"No downloaded file found in {self.output_dir}")
             
             # Verify the file actually exists and has size
             if not output_file.exists():

@@ -466,6 +466,27 @@ class FileManager {
     ipcRenderer.removeAllListeners('stem-progress');
     ipcRenderer.removeAllListeners('download-progress');
   }
+
+  async getFileStats(filePath) {
+    try {
+      if (!fs) {
+        console.warn('File system not available');
+        return { size: 0 };
+      }
+      
+      const stats = fs.statSync(filePath);
+      return {
+        size: stats.size,
+        created: stats.birthtime,
+        modified: stats.mtime,
+        isFile: stats.isFile(),
+        isDirectory: stats.isDirectory()
+      };
+    } catch (error) {
+      console.error('Error getting file stats:', error);
+      return { size: 0 };
+    }
+  }
 }
 
 // Export singleton instance

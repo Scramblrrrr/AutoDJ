@@ -74,17 +74,17 @@ class DemucsSimpleProcessor:
             print(f"PROGRESS: Processing: {filename} - 30% - Initializing Demucs model...", flush=True)
             sys.stdout.flush()
             
-            # Demucs command with maximum quality settings
+            # Demucs command with CPU-optimized settings
             cmd = [
                 'python', '-m', 'demucs.separate',
                 '-n', 'htdemucs',  # Use highest quality model
                 '-o', temp_dir,
                 '--filename', '{track}/{stem}.{ext}',
-                '--segment', '40',  # Use larger segments for better quality (more memory usage)
-                '--overlap', '0.5',  # Maximum overlap for smoothest results
-                '--shifts', '5',  # Use multiple shifts for better quality (slower but better)
+                '--segment', '7',  # Use maximum safe segment size (under 7.8 limit)
+                '--overlap', '0.25',  # Good overlap for quality results
+                '--shifts', '3',  # Multiple shifts for better quality
                 '--device', 'cpu',  # Ensure we use CPU for consistency
-                '--jobs', '4',  # Use multiple CPU cores for faster processing
+                '--jobs', '2',  # Use 2 cores per song (4 total for parallel processing)
                 input_file
             ]
             

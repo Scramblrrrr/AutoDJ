@@ -9,7 +9,7 @@ const DownloaderContainer = styled.div`
   padding: 30px;
   height: 100vh;
   overflow-y: auto;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  background: linear-gradient(135deg, #000000 0%, #3d3d3d 100%);
 `;
 
 const Header = styled.div`
@@ -19,20 +19,20 @@ const Header = styled.div`
     font-size: 28px;
     font-weight: 700;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, #888, #ccc);
+    background: linear-gradient(135deg, #ff2323, #ff5757);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   
   p {
-    color: #aaa;
+    color: #b0b0b0;
     font-size: 16px;
   }
 `;
 
 const DownloadSection = styled.div`
-  background: #252525;
-  border: 1px solid #333;
+  background: rgba(69, 69, 69, 0.3);
+  border: 1px solid rgba(255, 35, 35, 0.2);
   border-radius: 16px;
   padding: 30px;
   margin-bottom: 30px;
@@ -45,8 +45,8 @@ const URLInput = styled.div`
   
   input {
     flex: 1;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: rgba(109, 109, 109, 0.3);
+    border: 1px solid rgba(255, 35, 35, 0.3);
     border-radius: 8px;
     padding: 14px 16px;
     color: #fff;
@@ -572,16 +572,15 @@ function MusicDownloader() {
         console.log('Download result received:', result); // Debug log
         console.log('Video info:', result.video_info); // Debug log
         
-        // Extract better title from video info or filename
+        // Simply use the actual downloaded filename as the title
         let cleanTitle = 'Downloaded Track';
-        if (result.video_info?.title) {
-          console.log('Using video_info title:', result.video_info.title);
-          cleanTitle = result.video_info.title;
-        } else if (result.output_file) {
-          console.log('Extracting title from filename:', result.output_file);
-          // Extract title from filename
+        
+        if (result.output_file) {
+          console.log('Using actual filename as title:', result.output_file);
+          // Extract title from the actual downloaded filename
           const filename = result.output_file.split(/[/\\]/).pop();
           cleanTitle = filename.replace(/\.[^/.]+$/, ''); // Remove extension
+          console.log('Clean title from filename:', cleanTitle);
         }
 
         // Clean up common YouTube title patterns
@@ -793,13 +792,16 @@ function MusicDownloader() {
       // Add as a track for processing (but don't auto-process)
       const trackData = {
         name: download.title,
+        title: download.title, // Add title for compatibility
+        artist: download.artist || download.uploader || 'Unknown Artist', // Add artist
         filePath: filePath,
         size: fileSize,
         sizeFormatted: fileManager.formatFileSize ? fileManager.formatFileSize(fileSize) : `${(fileSize / (1024 * 1024)).toFixed(2)} MB`,
         status: 'pending', // Ready to be processed, but not processing yet
         progress: 0,
         type: 'downloaded',
-        downloadId: download.id
+        downloadId: download.id,
+        duration: download.duration || 0 // Add duration if available
       };
 
       const savedTrack = storage.addTrack(trackData);

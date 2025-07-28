@@ -183,6 +183,177 @@ ipcMain.handle('save-app-config', async (event, config) => {
   }
 });
 
+// Handle AutoDJ track analysis
+ipcMain.handle('analyze-track-autodj', async (event, data) => {
+  try {
+    const { audio_file, stems_dir } = data;
+    
+    console.log('AutoDJ: Analyzing track:', audio_file);
+    console.log('AutoDJ: Stems directory:', stems_dir);
+    
+    // Run Python analysis
+    const pythonArgs = [
+      path.join(__dirname, '..', 'python', 'autodj_analyzer.py'),
+      audio_file
+    ];
+    
+    if (stems_dir) {
+      pythonArgs.push(stems_dir);
+    }
+    
+    console.log('AutoDJ: Python command:', 'python', pythonArgs.join(' '));
+    
+    const pythonProcess = spawn('python', pythonArgs, {
+      cwd: path.join(__dirname, '..'),
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    pythonProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    
+    return new Promise((resolve, reject) => {
+      pythonProcess.on('close', (code) => {
+        try {
+          // Try to parse the output regardless of exit code, since we now return fallback JSON
+          const lines = output.trim().split('\n');
+          const resultLine = lines[lines.length - 1];
+          
+          if (resultLine) {
+            const analysis = JSON.parse(resultLine);
+            console.log('AutoDJ: Track analysis complete (code:', code, ')');
+            resolve(analysis);
+          } else {
+            // No output at all, create fallback
+            console.error('AutoDJ: No output from analysis script');
+            const fallbackAnalysis = {
+              'file': 'unknown',
+              'error': 'No output from analysis script',
+              'duration': 180.0,
+              'bpm': 120.0,
+              'key': 'C major',
+              'camelot': '8B',
+              'beatgrid': Array.from({length: 360}, (_, i) => i * 0.5),
+              'vocals': [],
+              'cue_in': 8.0,
+              'cue_out': 164.0,
+              'intro': {'start': 0.0, 'end': 8.0},
+              'outro': {'start': 164.0, 'end': 180.0}
+            };
+            resolve(fallbackAnalysis);
+          }
+        } catch (parseError) {
+          console.error('AutoDJ: Failed to parse analysis result:', parseError);
+          console.error('AutoDJ: Raw output:', output);
+          console.error('AutoDJ: Error output:', errorOutput);
+          
+          // Return fallback analysis instead of rejecting
+          const fallbackAnalysis = {
+            'file': 'unknown',
+            'error': `Parse error: ${parseError.message}`,
+            'duration': 180.0,
+            'bpm': 120.0,
+            'key': 'C major',
+            'camelot': '8B',
+            'beatgrid': Array.from({length: 360}, (_, i) => i * 0.5),
+            'vocals': [],
+            'cue_in': 8.0,
+            'cue_out': 164.0,
+            'intro': {'start': 0.0, 'end': 8.0},
+            'outro': {'start': 164.0, 'end': 180.0}
+          };
+          resolve(fallbackAnalysis);
+        }
+      });
+    });
+    
+  } catch (error) {
+    console.error('AutoDJ: Analysis error:', error);
+    throw error;
+  }
+});
+
+// Handle AutoDJ transition planning
+ipcMain.handle('plan-autodj-transition', async (event, data) => {
+  try {
+    const { current_track, next_track, transition_type, force_time } = data;
+    
+    console.log('AutoDJ: Planning transition');
+    
+    // Create temporary files for track analyses
+    const tempDir = path.join(__dirname, '..', 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const currentTrackFile = path.join(tempDir, 'current_track.json');
+    const nextTrackFile = path.join(tempDir, 'next_track.json');
+    
+    fs.writeFileSync(currentTrackFile, JSON.stringify(current_track, null, 2));
+    fs.writeFileSync(nextTrackFile, JSON.stringify(next_track, null, 2));
+    
+    // Run Python transition planner
+    const pythonArgs = [
+      path.join(__dirname, '..', 'python', 'autodj_transition_engine.py'),
+      currentTrackFile,
+      nextTrackFile
+    ];
+    
+    const pythonProcess = spawn('python', pythonArgs, {
+      cwd: path.join(__dirname, '..'),
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    pythonProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    
+    return new Promise((resolve, reject) => {
+      pythonProcess.on('close', (code) => {
+        // Clean up temp files
+        try {
+          fs.unlinkSync(currentTrackFile);
+          fs.unlinkSync(nextTrackFile);
+        } catch (cleanupError) {
+          console.warn('AutoDJ: Cleanup warning:', cleanupError);
+        }
+        
+        if (code === 0) {
+          try {
+            const plan = JSON.parse(output.trim());
+            console.log('AutoDJ: Transition plan created');
+            resolve(plan);
+          } catch (parseError) {
+            console.error('AutoDJ: Failed to parse transition plan:', parseError);
+            reject(new Error('Failed to parse transition plan'));
+          }
+        } else {
+          console.error('AutoDJ: Transition planning failed:', errorOutput);
+          reject(new Error(`Transition planning failed with code ${code}: ${errorOutput}`));
+        }
+      });
+    });
+    
+  } catch (error) {
+    console.error('AutoDJ: Transition planning error:', error);
+    throw error;
+  }
+});
+
 // Handler for loading audio files (for DJ mixing)
 ipcMain.handle('load-audio-file', async (event, filePath) => {
   return new Promise((resolve, reject) => {

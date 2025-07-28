@@ -8,7 +8,7 @@ const DashboardContainer = styled.div`
   padding: 30px;
   height: 100vh;
   overflow-y: auto;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  background: linear-gradient(135deg, #000000 0%, #3d3d3d 100%);
 `;
 
 const Header = styled.div`
@@ -18,13 +18,13 @@ const Header = styled.div`
     font-size: 32px;
     font-weight: 700;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, #888, #ccc);
+    background: linear-gradient(135deg, #ff2323, #ff5757);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   
   p {
-    color: #aaa;
+    color: #b0b0b0;
     font-size: 16px;
   }
 `;
@@ -37,8 +37,8 @@ const StatsGrid = styled.div`
 `;
 
 const StatCard = styled.div`
-  background: #252525;
-  border: 1px solid #333;
+  background: rgba(69, 69, 69, 0.3);
+  border: 1px solid rgba(255, 35, 35, 0.2);
   border-radius: 16px;
   padding: 24px;
   transition: all 0.3s ease;
@@ -47,7 +47,7 @@ const StatCard = styled.div`
   
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(255, 35, 35, 0.2);
     border-color: #444;
   }
   
@@ -58,7 +58,7 @@ const StatCard = styled.div`
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, #666, #888);
+    background: linear-gradient(90deg, #ff2323, #ff5757);
   }
 `;
 
@@ -69,13 +69,13 @@ const StatHeader = styled.div`
   
   svg {
     margin-right: 12px;
-    color: #888;
+    color: #ff2323;
   }
   
   h3 {
     font-size: 16px;
     font-weight: 600;
-    color: #ccc;
+    color: #d1d1d1;
   }
 `;
 
@@ -88,7 +88,7 @@ const StatValue = styled.div`
 
 const StatSubtext = styled.div`
   font-size: 14px;
-  color: #888;
+  color: #b0b0b0;
 `;
 
 const QuickActions = styled.div`
@@ -96,7 +96,7 @@ const QuickActions = styled.div`
     font-size: 24px;
     font-weight: 600;
     margin-bottom: 20px;
-    color: #ccc;
+    color: #d1d1d1;
   }
 `;
 
@@ -107,16 +107,16 @@ const ActionGrid = styled.div`
 `;
 
 const ActionCard = styled.div`
-  background: #252525;
-  border: 1px solid #333;
+  background: rgba(69, 69, 69, 0.3);
+  border: 1px solid rgba(255, 35, 35, 0.2);
   border-radius: 12px;
   padding: 24px;
   cursor: pointer;
   transition: all 0.2s ease;
   
   &:hover {
-    background: #2a2a2a;
-    border-color: #444;
+    background: rgba(255, 35, 35, 0.1);
+    border-color: rgba(255, 35, 35, 0.4);
     transform: translateY(-2px);
   }
   

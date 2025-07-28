@@ -10,7 +10,7 @@ const { ipcRenderer } = window.require ? window.require('electron') : { ipcRende
 const UploadContainer = styled.div`
   padding: 30px;
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  background: linear-gradient(135deg, #000000 0%, #3d3d3d 100%);
   padding-bottom: 150px; /* Extra space at bottom for better scrolling */
 `;
 
@@ -21,13 +21,13 @@ const Header = styled.div`
     font-size: 28px;
     font-weight: 700;
     margin-bottom: 8px;
-    background: linear-gradient(135deg, #888, #ccc);
+    background: linear-gradient(135deg, #ff2323, #ff5757);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   
   p {
-    color: #aaa;
+    color: #b0b0b0;
     font-size: 16px;
   }
 `;
@@ -37,17 +37,17 @@ const UploadSection = styled.div`
 `;
 
 const DropZone = styled.div`
-  border: 2px dashed ${props => props.$isDragActive ? '#666' : '#444'};
+  border: 2px dashed ${props => props.$isDragActive ? 'rgba(255, 35, 35, 0.6)' : 'rgba(255, 35, 35, 0.3)'};
   border-radius: 16px;
   padding: 60px 40px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s ease;
-  background: ${props => props.$isDragActive ? '#2a2a2a' : '#252525'};
+  background: ${props => props.$isDragActive ? 'rgba(255, 35, 35, 0.1)' : 'rgba(69, 69, 69, 0.3)'};
   margin-bottom: 20px;
   
   &:hover {
-    border-color: #555;
+    border-color: rgba(255, 35, 35, 0.5);
     background: #2a2a2a;
   }
   
@@ -113,15 +113,15 @@ const FileItem = styled.div`
   display: flex;
   align-items: center;
   padding: 16px;
-  background: #252525;
-  border: 1px solid #333;
+  background: rgba(69, 69, 69, 0.3);
+  border: 1px solid rgba(255, 35, 35, 0.2);
   border-radius: 12px;
   margin-bottom: 12px;
   transition: all 0.2s ease;
   
   &.selected {
-    border-color: #4a9eff;
-    background: rgba(74, 158, 255, 0.1);
+    border-color: #ff2323;
+    background: rgba(255, 35, 35, 0.1);
   }
   
   .file-checkbox {
@@ -136,7 +136,7 @@ const FileItem = styled.div`
   
   .file-icon {
     margin-right: 16px;
-    color: #666;
+    color: #ff2323;
     flex-shrink: 0;
   }
   
@@ -152,7 +152,7 @@ const FileItem = styled.div`
     
     p {
       font-size: 12px;
-      color: #888;
+      color: #b0b0b0;
       margin: 0;
     }
   }
@@ -553,10 +553,11 @@ function UploadProcess() {
       if (progressData && typeof progressData === 'string') {
         console.log(`Processing progress message [${messageType}]:`, progressData); // Debug log
         
-        // Look for file-specific progress patterns
-        const fileNameMatch = progressData.match(/Processing:\s*(.+?)(?:\s|$)/) ||
+        // Look for file-specific progress patterns with better matching
+        const fileNameMatch = progressData.match(/Processing:\s*(.+?)\s*-/) ||
                              progressData.match(/File:\s*(.+?)(?:\s|$)/) ||
-                             progressData.match(/Working on:\s*(.+?)(?:\s|$)/);
+                             progressData.match(/Working on:\s*(.+?)(?:\s|$)/) ||
+                             progressData.match(/Starting.*processing for:\s*.*[/\\](.+?)$/);
         
         // Look for various progress patterns
         const percentageMatch = progressData.match(/(\d+)%/) || 
@@ -572,6 +573,10 @@ function UploadProcess() {
           let targetFileName = null;
           if (fileNameMatch) {
             targetFileName = fileNameMatch[1].trim();
+            // Clean up the filename
+            targetFileName = targetFileName.split(/[/\\]/).pop(); // Get just filename
+            targetFileName = targetFileName.replace(/\.[^/.]+$/, ''); // Remove extension
+            console.log('Target filename extracted:', targetFileName);
           }
           
           setFiles(prevFiles => {
@@ -579,23 +584,30 @@ function UploadProcess() {
             console.log('Processing files found:', processingFiles.length); // Debug log
             
             return prevFiles.map(file => {
+              // Create a clean version of the file name for comparison
+              const cleanFileName = file.name.replace(/\.[^/.]+$/, '');
+              
               // If we have a specific filename, only update that file
               if (targetFileName) {
-                if (file.name.includes(targetFileName) || targetFileName.includes(file.name)) {
-                  console.log(`Updating specific file ${file.name} progress to ${percentage}%`);
-                  storage.updateTrack(file.id, { progress: percentage });
-                  return { ...file, progress: percentage };
+                const isMatch = cleanFileName.includes(targetFileName) || 
+                               targetFileName.includes(cleanFileName) ||
+                               cleanFileName.toLowerCase() === targetFileName.toLowerCase();
+                
+                if (isMatch) {
+                  console.log(`Updating specific file ${file.name} progress: ${file.progress}% → ${percentage}%`);
+                  // Only update if progress is moving forward or it's a reasonable jump
+                  const newProgress = Math.max(file.progress || 0, percentage);
+                  storage.updateTrack(file.id, { progress: newProgress });
+                  return { ...file, progress: newProgress };
                 }
                 return file;
               } 
-              // Otherwise, update the file with the lowest progress (most likely candidate)
+              // Otherwise, update only if it makes sense
               else if (file.status === 'processing') {
-                const shouldUpdate = processingFiles.length === 1 || 
-                                   file.progress <= percentage ||
-                                   (file.progress === 0 && percentage > 0);
-                
-                if (shouldUpdate) {
-                  console.log(`Updating file ${file.name} progress to ${percentage}%`);
+                // Only update if progress is moving forward or starting from 0
+                const currentProgress = file.progress || 0;
+                if (percentage >= currentProgress || currentProgress === 0) {
+                  console.log(`Updating file ${file.name} progress: ${currentProgress}% → ${percentage}%`);
                   storage.updateTrack(file.id, { progress: percentage });
                   return { ...file, progress: percentage };
                 }
@@ -611,8 +623,7 @@ function UploadProcess() {
   }, [progressMessages]);
 
   const onDrop = useCallback((acceptedFiles) => {
-    const newFiles = acceptedFiles.map(file => {
-      const fileInfo = fileManager.getFileInfo(file.path || file.name);
+    acceptedFiles.forEach(file => {
       const trackData = {
         name: file.name,
         filePath: file.path || file.name,
@@ -623,21 +634,13 @@ function UploadProcess() {
         type: 'uploaded'
       };
 
-      // Save to storage
-      const savedTrack = storage.addTrack(trackData);
-      
-      return {
-        id: savedTrack.id,
-        file,
-        name: savedTrack.name,
-        size: savedTrack.sizeFormatted,
-        status: savedTrack.status,
-        progress: savedTrack.progress,
-        filePath: savedTrack.filePath
-      };
+      // Save to storage - this will trigger the storage update listener
+      // which will reload all files, so we don't need to manually add to state
+      storage.addTrack(trackData);
     });
     
-    setFiles(prev => [...prev, ...newFiles]);
+    // Don't manually add to files state - let the storage update handler do it
+    // to prevent duplicates
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -709,13 +712,57 @@ function UploadProcess() {
       );
 
       if (result.success) {
-        // Update with completed status
+        console.log(`🎵 Starting audio analysis for ${file.name}...`);
+        
+        // Perform audio analysis on the processed stems
+        let analysisData = {};
+        try {
+          // Create a temporary audio engine instance for analysis
+          const audioEngineModule = await import('../utils/audioEngine');
+          const AudioEngine = audioEngineModule.default || audioEngineModule;
+          const tempAudioEngine = new AudioEngine();
+          await tempAudioEngine.initialize();
+          
+          // Load and analyze the track
+          const trackForAnalysis = {
+            ...file,
+            stemsPath: result.stems,
+            title: file.name.replace(/\.[^/.]+$/, ''), // Remove extension for title
+            name: file.name
+          };
+          
+          const analyzedTrack = await tempAudioEngine.loadTrack(trackForAnalysis);
+          
+          analysisData = {
+            bpm: analyzedTrack.bmp || analyzedTrack.bpm || 120,
+            key: analyzedTrack.key || { name: 'C Major', camelot: '8B' },
+            duration: analyzedTrack.duration || 0,
+            beatGrid: analyzedTrack.beatGrid || [],
+            waveform: analyzedTrack.waveform || []
+          };
+          
+          console.log(`🎵 Analysis complete for ${file.name}: ${analysisData.bpm} BPM, ${analysisData.key.name}`);
+          
+        } catch (error) {
+          console.warn('Audio analysis failed, using defaults:', error);
+          analysisData = {
+            bpm: 120,
+            key: { name: 'C Major', camelot: '8B' },
+            duration: 180
+          };
+        }
+        
+        // Update with completed status and analysis data
         const updatedFile = {
           status: 'completed',
           progress: 100,
           stemsPath: result.stems,
           processedAt: Date.now(),
-          jobId: null
+          jobId: null,
+          // Add analysis data
+          ...analysisData,
+          title: file.name.replace(/\.[^/.]+$/, ''), // Clean title
+          artist: 'Unknown Artist' // Default artist
         };
 
         setFiles(prev => prev.map(f => 

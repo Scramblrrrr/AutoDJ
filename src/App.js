@@ -12,7 +12,12 @@ const AppContainer = styled.div`
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #1a1a1a;
+  background: linear-gradient(135deg, 
+    #000000 0%, 
+    #3d3d3d 25%, 
+    #454545 50%, 
+    #5d5d5d 75%, 
+    #000000 100%);
   color: #ffffff;
   border-radius: 12px;
 `;
@@ -25,8 +30,8 @@ const ContentContainer = styled.div`
 
 const Sidebar = styled.div`
   width: 250px;
-  background: #252525;
-  border-right: 1px solid #333;
+  background: rgba(69, 69, 69, 0.3);
+  border-right: 1px solid rgba(255, 35, 35, 0.2);
   display: flex;
   flex-direction: column;
   padding: 20px 0;
@@ -36,7 +41,7 @@ const Logo = styled.div`
   display: flex;
   align-items: center;
   padding: 0 20px 30px 20px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid rgba(255, 35, 35, 0.3);
   margin-bottom: 20px;
   
   img {
@@ -48,7 +53,7 @@ const Logo = styled.div`
   h1 {
     font-size: 24px;
     font-weight: 700;
-    background: linear-gradient(135deg, #888, #ccc);
+    background: linear-gradient(135deg, #ff2323, #ff5757);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
@@ -60,21 +65,23 @@ const NavItem = styled.div`
   padding: 15px 20px;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: ${props => props.$active ? '#3a3a3a' : 'transparent'};
-  border-right: ${props => props.$active ? '3px solid #666' : '3px solid transparent'};
+  background: ${props => props.$active ? 'rgba(255, 35, 35, 0.2)' : 'transparent'};
+  border-right: ${props => props.$active ? '3px solid #ff2323' : '3px solid transparent'};
   
   &:hover {
-    background: #3a3a3a;
+    background: rgba(255, 35, 35, 0.1);
   }
   
   svg {
     margin-right: 12px;
     opacity: 0.8;
+    color: ${props => props.$active ? '#ff2323' : '#b0b0b0'};
   }
   
   span {
     font-size: 14px;
     font-weight: 500;
+    color: ${props => props.$active ? '#ff2323' : '#d1d1d1'};
   }
 `;
 

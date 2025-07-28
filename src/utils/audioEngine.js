@@ -191,9 +191,9 @@ class AudioEngine {
     this.filterNode.connect(this.masterGain);
   }
 
-  async loadTrack(trackData) {
+  async analyzeTrack(trackData) {
     try {
-      console.log('Loading track:', trackData.title);
+      console.log('🎵 Analyzing track:', trackData.title || trackData.name);
       
       if (!trackData.stemsPath) {
         throw new Error('No stems available for this track');
@@ -239,7 +239,7 @@ class AudioEngine {
       );
 
       // Notify listeners of BPM and key detection with enhanced info
-      this.notifyListeners('bpmDetected', {
+      this.notifyListeners('bmpDetected', {
         bpm: originalBPM,
         bmp: originalBPM, // Keep both for compatibility
         originalBPM: originalBPM,
@@ -271,6 +271,24 @@ class AudioEngine {
         waveform,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
+    } catch (error) {
+      console.error('Error analyzing track:', error);
+      throw error;
+    }
+  }
+
+  async loadTrack(trackData) {
+    try {
+      console.log('🎵 Loading track as current:', trackData.title || trackData.name);
+      
+      // Analyze the track first
+      const analyzedTrack = await this.analyzeTrack(trackData);
+      
+      // Set as current track in the audio engine
+      this.currentTrack = analyzedTrack;
+      console.log('🎵 Track loaded into audioEngine as current track');
+      
+      return analyzedTrack;
     } catch (error) {
       console.error('Error loading track:', error);
       throw error;
@@ -1768,13 +1786,13 @@ class AudioEngine {
     }, stepDuration);
   }
 
-  startNextTrackPlayback(startTime) {
+  startNextTrackPlayback(startTime, entryPointTime = 0) {
     if (!this.nextTrack || !this.nextTrack.stems) return;
     
-    console.log('🎵 AI DJ: Starting next track playback on Deck B');
+    console.log(`🎵 AI DJ: Starting next track playback on Deck B at ${entryPointTime.toFixed(1)}s entry point`);
     
-    // Reset and start Deck B time tracking
-    this.deckBCurrentTime = 0;
+    // Reset and start Deck B time tracking with entry point offset
+    this.deckBCurrentTime = entryPointTime;
     this.deckBStartTime = startTime || this.audioContext.currentTime;
     this.startDeckBTimeTracking();
     
@@ -1799,7 +1817,8 @@ class AudioEngine {
         gainNode.gain.value = 0.0;
         console.log(`🔇 Track B ${stemName}: Started at 0% volume (will be brought in during transition)`);
         
-        source.start(this.deckBStartTime, 0);
+        // Start at the specified entry point in the track
+        source.start(this.deckBStartTime, entryPointTime);
         stemData.source = source;
       }
     });
@@ -2154,6 +2173,9 @@ class AudioEngine {
       console.log(`🎵 ${this.currentTrack.title} is now the main track on Deck A audio path`);
     }
     
+    // CRITICAL: Restore original BPM gradually after transition
+    this.restoreOriginalBPM();
+    
     // Reset transition state
     this.nextTrack = null;
     this.nextTrackStemGains = null;
@@ -2182,31 +2204,101 @@ class AudioEngine {
     this.notifyListeners('transitionButtonReset');
   }
 
+  /**
+   * Gradually restore track to its original BPM after transition
+   */
+  async restoreOriginalBPM() {
+    if (!this.currentTrack || !this.currentTrack.stems) return;
+    
+    console.log('🎵 AI DJ: Restoring original BPM...');
+    
+    // Get current playback rate from any stem source
+    let currentPlaybackRate = 1.0;
+    const firstStem = Object.values(this.currentTrack.stems)[0];
+    if (firstStem && firstStem.source) {
+      currentPlaybackRate = firstStem.source.playbackRate.value;
+    }
+    
+    // If already at original tempo, no need to restore
+    if (Math.abs(currentPlaybackRate - 1.0) < 0.01) {
+      console.log('🎵 AI DJ: Already at original BPM');
+      return;
+    }
+    
+    console.log(`🎵 AI DJ: Restoring BPM from ${currentPlaybackRate.toFixed(2)}x to 1.0x over 8 seconds`);
+    
+    // Gradually restore to 1.0 over 8 seconds
+    const duration = 8000; // 8 seconds
+    const steps = 80; // 10 steps per second
+    const stepDuration = duration / steps;
+    const rateStep = (1.0 - currentPlaybackRate) / steps;
+    
+    let step = 0;
+    const restoreInterval = setInterval(() => {
+      step++;
+      const newRate = currentPlaybackRate + (rateStep * step);
+      
+      // Apply to all stem sources
+      Object.values(this.currentTrack.stems).forEach(stemData => {
+        if (stemData && stemData.source && stemData.source.playbackRate) {
+          stemData.source.playbackRate.value = newRate;
+        }
+      });
+      
+      // Complete restoration
+      if (step >= steps) {
+        clearInterval(restoreInterval);
+        console.log('🎵 AI DJ: BPM restoration complete - back to original tempo');
+        
+        // Notify UI that BPM has been restored
+        this.notifyListeners('bpmRestored', {
+          originalBPM: this.currentTrack.bpm,
+          restoredRate: 1.0
+        });
+      }
+    }, stepDuration);
+  }
+
   setAutoMix(enabled) {
     this.autoMixEnabled = enabled;
     this.notifyListeners('autoMixChanged', { enabled });
   }
 
   async loadNextTrack(trackData) {
-    console.log('🎵 Loading next track for Deck B:', trackData.title);
-    this.nextTrack = trackData;
+    if (!trackData) {
+      console.warn('🎵 loadNextTrack called with undefined trackData');
+      return null;
+    }
     
-    // Load and analyze Track B stems for beatgrid
+    console.log('🎵 Loading next track for Deck B:', trackData.title || trackData.name);
+    
+    // Analyze Track B without setting it as current track
     try {
-      const loadedTrack = await this.loadTrack(trackData, false); // Don't make it current
+      const analyzedTrack = await this.analyzeTrack(trackData);
+      
+      // Set as next track in the audio engine (not current!)
+      this.nextTrack = analyzedTrack;
+      console.log('🎵 Track loaded into audioEngine as next track');
       
       // Notify UI that Track B is loaded with beatgrid
       this.notifyListeners('deckBTrackLoaded', {
-        track: loadedTrack,
+        track: analyzedTrack,
         deck: 'B',
-        bpm: loadedTrack.bpm,
-        beatGrid: loadedTrack.beatGrid || [],
-        waveform: loadedTrack.waveform || []
+        bpm: analyzedTrack.bpm,
+        beatGrid: analyzedTrack.beatGrid || [],
+        waveform: analyzedTrack.waveform || []
       });
       
-      console.log(`🎵 Track B loaded: ${trackData.title} (${loadedTrack.bmp || 120} BPM)`);
+      console.log(`🎵 Track B loaded: ${trackData.title || trackData.name} (${analyzedTrack.bpm || 120} BPM)`);
+      return analyzedTrack;
     } catch (error) {
       console.error('Error loading Track B:', error);
+      // Fallback to original track data if it exists
+      if (trackData) {
+        this.nextTrack = trackData;
+        return trackData;
+      }
+      return null;
     }
   }
 
@@ -2430,6 +2522,120 @@ class AudioEngine {
         console.error('Error in audio engine listener:', error);
       }
     });
+  }
+
+  // Methods required by AutoDJ Engine
+  getCurrentTrack() {
+    return this.currentTrack;
+  }
+
+  getNextTrack() {
+    return this.nextTrack;
+  }
+
+  getCurrentTime() {
+    return this.currentTime || 0;
+  }
+
+  async startNextTrack(entryPointTime = 0) {
+    return await this.startNextTrackPlayback(null, entryPointTime);
+  }
+
+  stopCurrentTrack() {
+    if (this.isPlaying) {
+      this.pause();
+    }
+  }
+
+  async setLoop(startTime, endTime) {
+    console.log(`🎵 Setting loop: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s`);
+    // Basic loop implementation - in a full implementation this would set up actual audio looping
+    this.loopStart = startTime;
+    this.loopEnd = endTime;
+    this.loopEnabled = false; // Will be enabled by enableLoop()
+  }
+
+  async enableLoop() {
+    console.log('🎵 Enabling loop');
+    this.loopEnabled = true;
+    // In a full implementation, this would modify the audio playback to loop between loopStart and loopEnd
+  }
+
+  async disableLoop() {
+    console.log('🎵 Disabling loop');
+    this.loopEnabled = false;
+    this.loopStart = null;
+    this.loopEnd = null;
+  }
+
+  getStemNode(track, stemType) {
+    // Return the appropriate stem gain node
+    if (track === 'current' || track === 'A') {
+      return this.stemGains[stemType]?.trackA || this.stemGains[stemType];
+    } else if (track === 'next' || track === 'B') {
+      return this.stemGains[stemType]?.trackB;
+    }
+    return null;
+  }
+
+  getTrackNode(track) {
+    // Return the appropriate track gain node
+    if (track === 'current' || track === 'A') {
+      return this.trackAGain;
+    } else if (track === 'next' || track === 'B') {
+      return this.trackBGain;
+    }
+    return null;
+  }
+
+  get masterGainNode() {
+    return this.masterGain;
+  }
+
+  get currentGainNode() {
+    return this.trackAGain;
+  }
+
+  get nextGainNode() {
+    return this.trackBGain;
+  }
+
+  get currentTrackNode() {
+    // Return the first available stem source node for current track
+    if (this.currentTrack && this.currentTrack.stems) {
+      for (const stemName of ['vocals', 'drums', 'bass', 'other']) {
+        const stemData = this.currentTrack.stems[stemName];
+        if (stemData && stemData.source) {
+          return stemData.source;
+        }
+      }
+    }
+    return null;
+  }
+
+  get nextTrackNode() {
+    // Return the first available stem source node for next track
+    if (this.nextTrack && this.nextTrack.stems) {
+      for (const stemName of ['vocals', 'drums', 'bass', 'other']) {
+        const stemData = this.nextTrack.stems[stemName];
+        if (stemData && stemData.source) {
+          return stemData.source;
+        }
+      }
+    }
+    return null;
+  }
+
+  getQueue() {
+    // Return a simple queue - in a full implementation this would integrate with queue manager
+    if (this.queueManager && this.queueManager.getQueueForUI) {
+      return this.queueManager.getQueueForUI();
+    }
+    // Fallback: return an array with current and next track if available
+    const queue = [];
+    if (this.currentTrack) queue.push(this.currentTrack);
+    if (this.nextTrack) queue.push(this.nextTrack);
+    return queue;
   }
 
   // === PROFESSIONAL VOCAL-AWARE TRANSITION FUNCTIONS ===

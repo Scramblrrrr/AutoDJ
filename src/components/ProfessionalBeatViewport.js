@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
 import styled from 'styled-components';
 
 const ViewportContainer = styled.div`
@@ -176,7 +176,7 @@ const StemActivity = styled.div`
   }
 `;
 
-function ProfessionalBeatViewport({ 
+const ProfessionalBeatViewport = forwardRef(({ 
   deckATrack, 
   deckBTrack, 
   deckABeatGrid = [], 
@@ -188,7 +188,7 @@ function ProfessionalBeatViewport({
   onCuePointClick,
   onLoopRegionClick,
   onWaveformClick
-}) {
+}, ref) => {
   const deckAWaveformRef = useRef(null);
   const deckBWaveformRef = useRef(null);
   const deckABeatGridRef = useRef(null);
@@ -319,33 +319,62 @@ function ProfessionalBeatViewport({
       ctx.stroke();
     }
 
-    // Improved waveform rendering with better layering
-    for (let x = 0; x < canvasWidth; x += 0.5) { // Higher resolution
-      const sampleIndex = startSample + Math.floor((x / canvasWidth) * (endSample - startSample));
-      if (sampleIndex >= 0 && sampleIndex < waveformData.length) {
-        const sample = waveformData[sampleIndex];
+    // Professional high-resolution waveform rendering with interpolation
+    const pixelRatio = window.devicePixelRatio || 1;
+    for (let x = 0; x < canvasWidth; x += 0.2) { // Ultra-high resolution
+      const progress = x / canvasWidth;
+      const exactSampleIndex = startSample + progress * (endSample - startSample);
+      
+      // Interpolate between samples for smooth waveform
+      const lowerIndex = Math.floor(exactSampleIndex);
+      const upperIndex = Math.ceil(exactSampleIndex);
+      const fraction = exactSampleIndex - lowerIndex;
+      
+      if (lowerIndex >= 0 && upperIndex < waveformData.length) {
+        const lowerSample = waveformData[lowerIndex] || {};
+        const upperSample = waveformData[upperIndex] || {};
+        
+        // Interpolated sample values for smooth movement
+        const interpolatedSample = {
+          rms: (lowerSample.rms || 0) + ((upperSample.rms || 0) - (lowerSample.rms || 0)) * fraction,
+          bass: (lowerSample.bass || 0) + ((upperSample.bass || 0) - (lowerSample.bass || 0)) * fraction,
+          mid: (lowerSample.mid || 0) + ((upperSample.mid || 0) - (lowerSample.mid || 0)) * fraction,
+          treble: (lowerSample.treble || 0) + ((upperSample.treble || 0) - (lowerSample.treble || 0)) * fraction,
+          peak: Math.max(lowerSample.peak || 0, upperSample.peak || 0)
+        };
 
-        // Draw each stem layer with proper scaling and transparency
+        // Draw each stem layer with professional quality
         stems.forEach((stem, idx) => {
-          const value = sample[stem.field] !== undefined ? sample[stem.field] : sample.rms || 0;
-          const amplitude = Math.min(Math.max(value * 2, 0), 1.0); // Enhanced amplitude
-          const layerHeight = canvasHeight * 0.8; // Use 80% of canvas height
+          const value = interpolatedSample[stem.field] || interpolatedSample.rms || 0;
+          // Enhanced amplitude scaling with dynamic range compression
+          const amplitude = Math.pow(Math.min(Math.max(value * 2.2, 0), 1.0), 0.75);
+          const layerHeight = canvasHeight * 0.9; // Use 90% of canvas height
           const h = amplitude * layerHeight;
           const yCenter = canvasHeight / 2;
 
-          if (h > 2) { // Minimum height threshold
-            // Create gradient for better visual depth
+          if (h > 1) { // Lower threshold for more detail
+            // Advanced gradient with multiple stops for 3D effect
             const gradient = ctx.createLinearGradient(0, yCenter - h/2, 0, yCenter + h/2);
-            gradient.addColorStop(0, stem.color);
-            gradient.addColorStop(0.5, stem.color.replace('0.', '0.9')); // More opaque in center
-            gradient.addColorStop(1, stem.color);
+            gradient.addColorStop(0, stem.color.replace(/[\d\.]+\)$/, '0.2)'));
+            gradient.addColorStop(0.2, stem.color.replace(/[\d\.]+\)$/, '0.6)'));
+            gradient.addColorStop(0.5, stem.color);
+            gradient.addColorStop(0.8, stem.color.replace(/[\d\.]+\)$/, '0.6)'));
+            gradient.addColorStop(1, stem.color.replace(/[\d\.]+\)$/, '0.2)'));
             
             ctx.fillStyle = gradient;
-            ctx.fillRect(x, yCenter - h / 2, 1, h);
+            ctx.fillRect(x, yCenter - h / 2, 0.3, h);
             
-            // Add subtle outline for definition
-            ctx.strokeStyle = stem.color.replace(/0\.\d/, '1.0');
-            ctx.lineWidth = 0.5;
+            // Add glow effect for high-energy sections
+            if (amplitude > 0.7) {
+              ctx.shadowColor = stem.color;
+              ctx.shadowBlur = 4;
+              ctx.fillRect(x, yCenter - h / 2, 0.3, h);
+              ctx.shadowBlur = 0;
+            }
+            
+            // Subtle outline for definition
+            ctx.strokeStyle = stem.color.replace(/[\d\.]+\)$/, '0.4)');
+            ctx.lineWidth = 0.3;
             ctx.beginPath();
             ctx.moveTo(x, yCenter - h / 2);
             ctx.lineTo(x, yCenter + h / 2);
@@ -353,39 +382,92 @@ function ProfessionalBeatViewport({
           }
         });
 
-        // Enhanced peak indicators
-        if (sample.peak && sample.peak > 0.85) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.fillRect(x, 0, 2, canvasHeight);
+        // Professional peak indicators with animation
+        if (interpolatedSample.peak && interpolatedSample.peak > 0.8) {
+          const peakIntensity = (interpolatedSample.peak - 0.8) / 0.2;
+          ctx.fillStyle = `rgba(255, 255, 255, ${peakIntensity * 0.9})`;
+          ctx.fillRect(x - 0.5, 0, 1, canvasHeight);
+          
+          // Peak glow effect
+          ctx.shadowColor = '#ffffff';
+          ctx.shadowBlur = 6 * peakIntensity;
+          ctx.fillRect(x - 0.5, 0, 1, canvasHeight);
+          ctx.shadowBlur = 0;
         }
       }
     }
     
-    // Draw playhead position
+    // Draw professional playhead with glow effect
     const playheadX = canvasWidth / 2;
-    ctx.strokeStyle = deck === 'A' ? '#00ff88' : '#ffff00';
+    const playheadColor = deck === 'A' ? '#00ff88' : '#ffff00';
+    
+    // Playhead glow
+    ctx.strokeStyle = playheadColor;
+    ctx.lineWidth = 4;
+    ctx.shadowColor = playheadColor;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, 0);
+    ctx.lineTo(playheadX, canvasHeight);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Playhead core line
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(playheadX, 0);
     ctx.lineTo(playheadX, canvasHeight);
     ctx.stroke();
     
-    // Draw time markers with better visibility
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.font = '10px monospace';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    // Playhead indicators (triangles)
+    ctx.fillStyle = playheadColor;
+    ctx.beginPath();
+    ctx.moveTo(playheadX - 8, 0);
+    ctx.lineTo(playheadX + 8, 0);
+    ctx.lineTo(playheadX, 16);
+    ctx.closePath();
+    ctx.fill();
     
-    for (let i = 0; i <= viewportTime; i += 5) {
+    ctx.beginPath();
+    ctx.moveTo(playheadX - 8, canvasHeight);
+    ctx.lineTo(playheadX + 8, canvasHeight);
+    ctx.lineTo(playheadX, canvasHeight - 16);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Enhanced time markers with better formatting
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    
+    const markerInterval = viewportTime > 30 ? 10 : 5; // Adaptive marker spacing
+    for (let i = 0; i <= viewportTime; i += markerInterval) {
       const x = (i / viewportTime) * canvasWidth;
+      
+      // Draw marker line
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, canvasHeight - 30);
       ctx.lineTo(x, canvasHeight);
       ctx.stroke();
       
-      // Time labels
-      const timeLabel = Math.floor(windowStart + i);
-      ctx.fillText(`${Math.floor(timeLabel / 60)}:${(timeLabel % 60).toString().padStart(2, '0')}`, x + 2, 12);
+      // Time labels with background for better readability
+      const timeAtMarker = windowStart + i;
+      const minutes = Math.floor(timeAtMarker / 60);
+      const seconds = Math.floor(timeAtMarker % 60);
+      const milliseconds = Math.floor((timeAtMarker % 1) * 10);
+      const timeLabel = `${minutes}:${seconds.toString().padStart(2, '0')}.${milliseconds}`;
+      
+      // Background for text
+      const textWidth = ctx.measureText(timeLabel).width;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(x - textWidth/2 - 4, canvasHeight - 25, textWidth + 8, 16);
+      
+      // Text
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.textAlign = 'center';
+      ctx.fillText(timeLabel, x, canvasHeight - 12);
     }
   };
   
@@ -505,17 +587,18 @@ function ProfessionalBeatViewport({
         Professional Beat Viewport - Zoom: {zoom}x - Window: {viewportTime}s
       </TimeRuler>
       
-      {/* Deck A Viewport */}
-      <DeckViewport $deckColor="#00ff88">
-        <DeckHeader $deckColor="#00ff88">
-          <div className="deck-label">DECK A</div>
-          <div className="track-info">
-            {deckATrack ? `${deckATrack.title} - ${deckATrack.artist || 'Unknown'}` : 'No track loaded'}
-          </div>
-          <div className="bpm-display">
-            {deckATrack?.bmp || deckATrack?.bpm || 120} BPM
-          </div>
-        </DeckHeader>
+      {/* Conditionally render Deck A if it has a track */}
+      {deckATrack && (
+        <DeckViewport $deckColor="#00ff88">
+          <DeckHeader $deckColor="#00ff88">
+            <div className="deck-label">DECK A</div>
+            <div className="track-info">
+              {`${deckATrack.title} - ${deckATrack.artist || 'Unknown'}`}
+            </div>
+            <div className="bpm-display">
+              {deckATrack?.bmp || deckATrack?.bpm || 120} BPM
+            </div>
+          </DeckHeader>
         
         <WaveformCanvas 
           ref={deckAWaveformRef}
@@ -566,18 +649,20 @@ function ProfessionalBeatViewport({
           <StemActivity $color="#9c27b0" $activity={0.6} title="Other" />
         </StemActivityBar>
       </DeckViewport>
+      )}
       
-      {/* Deck B Viewport */}
-      <DeckViewport $deckColor="#ffff00">
-        <DeckHeader $deckColor="#ffff00">
-          <div className="deck-label">DECK B</div>
-          <div className="track-info">
-            {deckBTrack ? `${deckBTrack.title} - ${deckBTrack.artist || 'Unknown'}` : 'No track loaded'}
-          </div>
-          <div className="bpm-display">
-            {deckBTrack?.bmp || deckBTrack?.bpm || 120} BPM
-          </div>
-        </DeckHeader>
+      {/* Conditionally render Deck B if it has a track */}
+      {deckBTrack && (
+        <DeckViewport $deckColor="#ffff00">
+          <DeckHeader $deckColor="#ffff00">
+            <div className="deck-label">DECK B</div>
+            <div className="track-info">
+              {`${deckBTrack.title} - ${deckBTrack.artist || 'Unknown'}`}
+            </div>
+            <div className="bpm-display">
+              {deckBTrack?.bmp || deckBTrack?.bpm || 120} BPM
+            </div>
+          </DeckHeader>
         
         <WaveformCanvas 
           ref={deckBWaveformRef}
@@ -626,8 +711,9 @@ function ProfessionalBeatViewport({
           <StemActivity $color="#ffc107" $activity={0.8} title="Drums" />
           <StemActivity $color="#2196f3" $activity={0.9} title="Bass" />
           <StemActivity $color="#9c27b0" $activity={0.5} title="Other" />
-        </StemActivityBar>
+                  </StemActivityBar>
       </DeckViewport>
+      )}
       
       {/* Zoom Controls */}
       <div style={{ 
@@ -678,6 +764,6 @@ function ProfessionalBeatViewport({
       </div>
     </ViewportContainer>
   );
-}
+});
 
 export default ProfessionalBeatViewport; 
