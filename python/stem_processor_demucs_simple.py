@@ -51,6 +51,17 @@ class DemucsSimpleProcessor:
     def is_supported_format(self, file_path: str) -> bool:
         """Check if the file format is supported."""
         return Path(file_path).suffix.lower() in self.supported_formats
+
+    def convert_to_analysis_wav(self, input_file: str) -> str:
+        """Convert any audio file to a high quality WAV for analysis."""
+        try:
+            y, sr = librosa.load(input_file, sr=48000, mono=False)
+            temp_wav = os.path.join(tempfile.gettempdir(), f"analysis_{Path(input_file).stem}.wav")
+            sf.write(temp_wav, y.T if len(y.shape) > 1 else y, 48000)
+            return temp_wav
+        except Exception as e:
+            logger.error(f"Conversion to analysis WAV failed: {e}")
+            raise
     
     def run_demucs_separation(self, input_file: str, temp_dir: str) -> bool:
         """
@@ -63,11 +74,9 @@ class DemucsSimpleProcessor:
             # Demucs command with proper settings
             cmd = [
                 'python', '-m', 'demucs.separate',
-                '-n', 'htdemucs',  # Use htdemucs model (best quality)
+                '-n', 'htdemucs',
                 '-o', temp_dir,
                 '--filename', '{track}/{stem}.{ext}',
-                '--mp3',  # Output as MP3 for smaller files
-                '--mp3-bitrate', '320',  # High quality MP3
                 input_file
             ]
             
@@ -183,24 +192,14 @@ class DemucsSimpleProcessor:
         
         # Copy and rename stems to output directory
         for stem_name in expected_stems:
-            # Look for the stem file (could be .mp3 or .wav)
-            for ext in ['.mp3', '.wav']:
-                source_file = os.path.join(demucs_output_dir, f"{stem_name}{ext}")
-                if os.path.exists(source_file):
-                    # Copy to final destination with proper naming
-                    dest_file = os.path.join(output_dir, f"{base_name}_{stem_name}.wav")
-                    
-                    # Convert to WAV if needed
-                    if ext == '.mp3':
-                        audio, sr = librosa.load(source_file, sr=None, mono=False)
-                        sf.write(dest_file, audio.T if len(audio.shape) > 1 else audio, sr)
-                    else:
-                        shutil.copy2(source_file, dest_file)
-                    
-                    stem_files[stem_name] = dest_file
-                    print(f"PROGRESS: Organized {stem_name} stem", flush=True)
-                    sys.stdout.flush()
-                    break
+            source_file = os.path.join(demucs_output_dir, f"{stem_name}.wav")
+            if os.path.exists(source_file):
+                dest_file = os.path.join(output_dir, f"{base_name}_{stem_name}.wav")
+                shutil.copy2(source_file, dest_file)
+                stem_files[stem_name] = dest_file
+                print(f"PROGRESS: Organized {stem_name} stem", flush=True)
+                sys.stdout.flush()
+            
         
         if len(stem_files) == 0:
             raise FileNotFoundError("No stem files found in Demucs output")
@@ -299,13 +298,15 @@ class DemucsSimpleProcessor:
             print("PROGRESS: 20% - Creating temporary workspace...", flush=True)
             sys.stdout.flush()
             
+            analysis_input = self.convert_to_analysis_wav(input_file)
+
             # Create temporary directory for Demucs
             with tempfile.TemporaryDirectory() as temp_dir:
                 print(f"PROGRESS: Temporary directory: {temp_dir}", flush=True)
                 sys.stdout.flush()
-                
+
                 # Run Demucs separation
-                success = self.run_demucs_separation(input_file, temp_dir)
+                success = self.run_demucs_separation(analysis_input, temp_dir)
                 
                 if not success:
                     raise RuntimeError("Demucs separation failed")
@@ -344,7 +345,7 @@ class DemucsSimpleProcessor:
                 
                 logger.info(f"Demucs processing completed successfully: {len(enhanced_stems)} stems created")
                 return result
-        
+
         except Exception as e:
             error_msg = f"Error processing stems: {str(e)}"
             logger.error(error_msg)
@@ -355,6 +356,13 @@ class DemucsSimpleProcessor:
                 'error': error_msg,
                 'input_file': input_file
             }
+
+        finally:
+            if os.path.exists(analysis_input):
+                try:
+                    os.remove(analysis_input)
+                except Exception:
+                    pass
 
 def main():
     """Main function to run when script is called directly."""

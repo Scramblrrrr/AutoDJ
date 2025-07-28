@@ -472,7 +472,7 @@ function MusicDownloader() {
   const [url, setUrl] = useState('');
   const [outputPath, setOutputPath] = useState('');
   const [quality, setQuality] = useState('320');
-  const [format, setFormat] = useState('mp3');
+  const [format, setFormat] = useState('wav');
   const [downloads, setDownloads] = useState([]);
   const [autoProcess, setAutoProcess] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -486,7 +486,7 @@ function MusicDownloader() {
     if (settings) {
       setOutputPath(settings.downloadPath || fileManager.getDefaultPath('downloads'));
       setQuality(settings.defaultQuality || '320');
-      setFormat(settings.defaultFormat || 'mp3');
+      setFormat(settings.defaultFormat || 'wav');
       setAutoProcess(settings.autoProcess !== undefined ? settings.autoProcess : true);
     } else {
       setOutputPath(fileManager.getDefaultPath('downloads'));
