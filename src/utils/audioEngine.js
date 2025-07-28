@@ -193,15 +193,15 @@ class AudioEngine {
       }
       
       // Detect BPM and musical key for professional mixing
-      const bmp = await this.detectBPM(stems.drums || stems.other);
+      const bpm = await this.detectBPM(stems.drums || stems.other);
       const key = await this.detectKey(stems.vocals || stems.other || stems.drums);
       
-      console.log(`🎵 Track analysis complete: ${bmp} BPM, ${key.name} (${key.camelot})`);
+      console.log(`🎵 Track analysis complete: ${bpm} BPM, ${key.name} (${key.camelot})`);
       
       return {
         ...trackData,
         stems,
-        bmp,
+        bpm,
         key,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
@@ -1142,8 +1142,8 @@ class AudioEngine {
   async performAdvancedManualTransition() {
     console.log('🎧 AI DJ: Performing advanced manual transition with looping and layering');
     
-    const currentBPM = this.currentTrack?.bmp || 120;
-    const nextBPM = this.nextTrack?.bmp || 120;
+    const currentBPM = this.currentTrack?.bpm || 120;
+    const nextBPM = this.nextTrack?.bpm || 120;
     const bpmDifference = Math.abs(currentBPM - nextBPM);
     
     console.log(`🎵 AI DJ: Manual transition - Current: ${currentBPM} BPM, Next: ${nextBPM} BPM, Diff: ${bpmDifference}`);
@@ -1182,7 +1182,7 @@ class AudioEngine {
   async performBeatMatchLoopTransition() {
     console.log('🎵 AI DJ: Performing beat-matched loop transition');
     
-    const pitchRatio = (this.currentTrack?.bmp || 120) / (this.nextTrack?.bmp || 120);
+    const pitchRatio = (this.currentTrack?.bpm || 120) / (this.nextTrack?.bpm || 120);
     console.log(`🎛️ Applying pitch shift ratio: ${pitchRatio.toFixed(3)}`);
     
     this.setupPitchShifting(pitchRatio);
@@ -1387,9 +1387,9 @@ class AudioEngine {
     
     try {
       // Advanced professional DJ analysis: BPM + Key + Energy
-      const currentBPM = this.currentTrack.bmp || 120;
-      const nextBPM = this.nextTrack.bmp || 120;
-      const bmpDifference = Math.abs(currentBPM - nextBPM);
+      const currentBPM = this.currentTrack.bpm || 120;
+      const nextBPM = this.nextTrack.bpm || 120;
+      const bpmDifference = Math.abs(currentBPM - nextBPM);
       
       // Harmonic compatibility analysis
       const currentKey = this.currentTrack.key;
@@ -1403,7 +1403,7 @@ class AudioEngine {
       console.log(`🎵 AI DJ: Professional Track Analysis:`);
       console.log(`   🎵 Current: ${currentBPM} BPM, ${currentKey?.name || 'Unknown'} (${currentKey?.camelot || 'N/A'})`);
       console.log(`   🎵 Next: ${nextBPM} BPM, ${nextKey?.name || 'Unknown'} (${nextKey?.camelot || 'N/A'})`);
-      console.log(`   📊 BPM Difference: ${bmpDifference}`);
+      console.log(`   📊 BPM Difference: ${bpmDifference}`);
       console.log(`   🎼 Key Compatibility: ${keyCompatibility.reason} (Score: ${keyCompatibility.score.toFixed(2)})`);
       console.log(`   🎤 Vocal Activity: ${(currentVocalActivity * 100).toFixed(0)}%`);
       console.log(`   ⏰ Transition Point: ${optimalTransitionPoint.quality} (${optimalTransitionPoint.waitTime.toFixed(1)}s wait)`);
@@ -1415,19 +1415,19 @@ class AudioEngine {
       }
       
       // Professional transition selection with vocal-aware logic
-      if (currentVocalActivity > 0.7 && bmpDifference <= 6) {
+      if (currentVocalActivity > 0.7 && bpmDifference <= 6) {
         // High vocal activity - use echo out to avoid vocal clash
         console.log('🎵 AI DJ: High vocal activity - using echo out transition');
         await this.performEchoOutTransition(currentBPM, keyCompatibility);
-      } else if (bmpDifference <= 3 && keyCompatibility.score >= 0.8) {
+      } else if (bpmDifference <= 3 && keyCompatibility.score >= 0.8) {
         // Perfect harmonic match - extended musical crossfade
         console.log('🎵 AI DJ: Perfect harmonic match - using extended musical crossfade');
         await this.performHarmonicCrossfade(10000, keyCompatibility);
-      } else if (bmpDifference <= 6 && keyCompatibility.compatible) {
+      } else if (bpmDifference <= 6 && keyCompatibility.compatible) {
         // Good compatibility - phrase-aligned transition
         console.log('🎵 AI DJ: Good compatibility - using phrase-aligned transition');
         await this.performPhraseAlignedTransition(currentBPM, nextBPM, keyCompatibility);
-      } else if (bmpDifference <= 12) {
+      } else if (bpmDifference <= 12) {
         // Moderate difference - key sync with filter sweep
         console.log('🎵 AI DJ: Moderate difference - using filter sweep transition');
         await this.performFilterSweepTransition(currentBPM, nextBPM, keyCompatibility);
@@ -1438,7 +1438,7 @@ class AudioEngine {
       } else {
         // Large difference + key clash - creative effect-assisted transition
         console.log('🎵 AI DJ: Large difference + key clash - using effect-assisted creative transition');
-        await this.performCreativeEffectTransition(bmpDifference, keyCompatibility);
+        await this.performCreativeEffectTransition(bpmDifference, keyCompatibility);
       }
       
     } catch (error) {
@@ -1792,7 +1792,7 @@ class AudioEngine {
         waveform: loadedTrack.waveform || []
       });
       
-      console.log(`🎵 Track B loaded: ${trackData.title} (${loadedTrack.bmp || 120} BPM)`);
+      console.log(`🎵 Track B loaded: ${trackData.title} (${loadedTrack.bpm || 120} BPM)`);
     } catch (error) {
       console.error('Error loading Track B:', error);
     }
@@ -1878,12 +1878,12 @@ class AudioEngine {
   }
 
   // Creative effect-assisted transition for challenging combinations
-  async performCreativeEffectTransition(bmpDifference, keyCompatibility) {
+  async performCreativeEffectTransition(bpmDifference, keyCompatibility) {
     console.log(`🎵 AI DJ: Performing creative effect transition`);
-    console.log(`🎼 Large BPM difference (${bmpDifference}) + key challenge`);
+    console.log(`🎼 Large BPM difference (${bpmDifference}) + key challenge`);
     
     // Use echo-out with harmonic filtering
-    this.applyEchoOut(this.currentTrack.bmp);
+    this.applyEchoOut(this.currentTrack.bpm);
     
     // Filter sweep to mask key clash
     this.applyCreativeFilter();

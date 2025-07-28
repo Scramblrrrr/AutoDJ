@@ -1080,7 +1080,7 @@ function AIDJ() {
         case 'bpmDetected':
           setCurrentTrack(prev => ({
             ...prev,
-            bmp: data.bmp,
+            bpm: data.bpm,
             key: data.key // Key might be included with BPM detection
           }));
           setBeatGrid(data.beatGrid || []);
@@ -1312,7 +1312,7 @@ function AIDJ() {
       const trackData = {
         ...track,
         deck: deck,
-        bmp: track.bmp || 120
+        bpm: track.bpm || 120
       };
 
       // Load as next track for transitions
@@ -1798,10 +1798,10 @@ function AIDJ() {
             <BPMSection $synced={bpmSynced}>
               <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                 <div className="deck-info">
-                  <div className="bmp-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
-                    {currentTrack.bmp || 120}
+                  <div className="bpm-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
+                    {currentTrack.bpm || 120}
                   </div>
-                  <div className="bmp-label">Deck A BPM</div>
+                  <div className="bpm-label">Deck A BPM</div>
                   <div className="key-display" style={{ 
                     marginTop: '4px', 
                     fontSize: '12px', 
@@ -1818,10 +1818,10 @@ function AIDJ() {
                   </div>
                 </div>
                 <div className="deck-info">
-                  <div className="bmp-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
-                    {deckBTrack?.bmp || (deckBQueue.length > 0 ? deckBQueue[0].bmp || 120 : 120)}
+                  <div className="bpm-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
+                    {deckBTrack?.bpm || (deckBQueue.length > 0 ? deckBQueue[0].bpm || 120 : 120)}
                   </div>
-                  <div className="bmp-label">Deck B BPM</div>
+                  <div className="bpm-label">Deck B BPM</div>
                   <div className="key-display" style={{ 
                     marginTop: '4px', 
                     fontSize: '12px', 
