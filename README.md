@@ -16,6 +16,7 @@ AutoDJ is a sophisticated desktop application that automatically mixes user-uplo
 ### 🎧 Audio Processing
 - **Stem Separation**: Uses Meta's Demucs for high-quality source separation
 - **Multiple Format Support**: MP3, WAV, FLAC, M4A, AAC
+- **Automatic WAV Conversion**: Inputs are converted to 44.1&nbsp;kHz WAV for consistent stem extraction and BPM analysis
 - **Batch Processing**: Process multiple tracks simultaneously
 - **Real-time Visualization**: Live stem level monitoring and control
 
@@ -144,10 +145,11 @@ npm run electron-pack
 
 ### Audio Processing Pipeline
 1. **Input Validation**: Check file format and integrity
-2. **Stem Separation**: Use Demucs to separate audio sources
-3. **Metadata Extraction**: Extract audio properties and tags
-4. **File Organization**: Save processed stems with proper naming
-5. **Quality Control**: Verify output quality and completeness
+2. **WAV Conversion**: All inputs are converted to 44.1 kHz WAV for consistent beat analysis
+3. **Stem Separation**: Use Demucs to separate audio sources
+4. **Metadata Extraction**: Extract audio properties and tags
+5. **File Organization**: Save processed stems with proper naming
+6. **Quality Control**: Verify output quality and completeness
 
 ## Configuration
 

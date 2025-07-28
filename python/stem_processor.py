@@ -119,6 +119,23 @@ class StemProcessor:
             logger.error(f"Error converting webm to wav: {str(e)}")
             print(f"ERROR: WebM conversion failed: {str(e)}")
             return False
+
+    def convert_to_wav(self, input_file: str, output_file: str, sample_rate: int = 44100) -> bool:
+        """Convert any supported audio file to WAV format."""
+        try:
+            if PYDUB_AVAILABLE:
+                audio = AudioSegment.from_file(input_file)
+                audio = audio.set_frame_rate(sample_rate).set_channels(2)
+                audio.export(output_file, format="wav")
+                return os.path.exists(output_file)
+            else:
+                y, sr = librosa.load(input_file, sr=sample_rate, mono=False)
+                import soundfile as sf
+                sf.write(output_file, y.T if y.ndim > 1 else y, sample_rate)
+                return os.path.exists(output_file)
+        except Exception as e:
+            logger.error(f"Failed to convert {input_file} to wav: {e}")
+            return False
     
     def _convert_with_librosa(self, input_file: str, output_file: str) -> bool:
         """
@@ -206,57 +223,17 @@ class StemProcessor:
             # Create output directory
             os.makedirs(output_dir, exist_ok=True)
             
-            # Handle webm files - convert to wav first
+            # Handle conversion to wav for consistent processing
             actual_input_file = input_file
             temp_wav_file = None
-            
-            if Path(input_file).suffix.lower() == '.webm':
-                print("PROGRESS: 5% - Converting webm to wav for processing...")
-                logger.info("WebM file detected, converting to WAV first...")
-                
-                # Create temporary wav file
-                temp_wav_file = os.path.join(tempfile.gettempdir(), f"temp_{os.path.basename(input_file)}.wav")
-                
-                # Try conversion with timeout
-                conversion_successful = False
-                try:
-                    # Use threading timeout for Windows compatibility
-                    import threading
-                    import time
-                    
-                    conversion_result = [False]  # Use list for mutable reference
-                    
-                    def do_conversion():
-                        try:
-                            conversion_result[0] = self.convert_webm_to_wav(input_file, temp_wav_file)
-                        except Exception as e:
-                            logger.error(f"Conversion thread error: {e}")
-                            conversion_result[0] = False
-                    
-                    # Start conversion in separate thread
-                    conversion_thread = threading.Thread(target=do_conversion)
-                    conversion_thread.start()
-                    conversion_thread.join(timeout=60)  # 60 second timeout
-                    
-                    if conversion_thread.is_alive():
-                        logger.error("WebM conversion timed out after 60 seconds")
-                        print("ERROR: WebM conversion timed out - file may be too large")
-                        conversion_successful = False
-                    else:
-                        conversion_successful = conversion_result[0]
-                        
-                except Exception as e:
-                    logger.error(f"WebM conversion failed with exception: {e}")
-                    conversion_successful = False
-                
-                if conversion_successful:
+
+            # Convert other formats or resample if needed
+            if Path(actual_input_file).suffix.lower() != '.wav':
+                if not temp_wav_file:
+                    temp_wav_file = os.path.join(tempfile.gettempdir(), f"temp_{Path(input_file).stem}.wav")
+                if self.convert_to_wav(actual_input_file, temp_wav_file):
                     actual_input_file = temp_wav_file
-                    logger.info(f"Using converted file: {actual_input_file}")
-                else:
-                    # Fallback: try to use the webm file directly (might work with newer demucs versions)
-                    logger.warning("WebM conversion failed, attempting direct processing...")
-                    print("PROGRESS: 5% - WebM conversion failed, trying direct processing...")
-                    actual_input_file = input_file
+            
             
             # Get audio info (use original file for metadata)
             audio_info = self.get_audio_info(input_file)
