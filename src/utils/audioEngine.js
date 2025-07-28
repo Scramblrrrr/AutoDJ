@@ -1648,27 +1648,38 @@ class AudioEngine {
     const nextTrackStartTime = this.audioContext.currentTime + 0.05;
     this.startNextTrackPlayback(nextTrackStartTime);
 
-    const startTime = performance.now();
-    const step = () => {
-      const progress = Math.min((performance.now() - startTime) / fadeDuration, 1);
 
-      // Equal-power crossfade for smooth volume changes
-      const currentTrackGain = Math.cos(progress * Math.PI / 2);
-      const nextTrackGain = Math.sin(progress * Math.PI / 2);
+    const fadeStart = nextTrackStartTime;
+    const fadeEnd = fadeStart + fadeDuration / 1000;
 
-      this.trackAGain.gain.value = currentTrackGain;
-      this.trackBGain.gain.value = nextTrackGain;
+    // Pre-compute equal-power crossfade curves
+    const steps = 50;
+    const curveA = new Float32Array(steps);
+    const curveB = new Float32Array(steps);
+    for (let i = 0; i < steps; i++) {
+      const p = i / (steps - 1);
+      curveA[i] = Math.cos(p * Math.PI / 2);
+      curveB[i] = Math.sin(p * Math.PI / 2);
+    }
 
+    this.trackAGain.gain.cancelScheduledValues(fadeStart);
+    this.trackBGain.gain.cancelScheduledValues(fadeStart);
+    this.trackAGain.gain.setValueCurveAtTime(curveA, fadeStart, fadeDuration / 1000);
+    this.trackBGain.gain.setValueCurveAtTime(curveB, fadeStart, fadeDuration / 1000);
+
+    const animate = () => {
+      const progress = Math.min((this.audioContext.currentTime - fadeStart) / (fadeDuration / 1000), 1);
       this.updateCrossfaderUI(progress);
-
       if (progress < 1) {
-        requestAnimationFrame(step);
+        requestAnimationFrame(animate);
+
       } else {
         this.completeTransition();
       }
     };
 
-    requestAnimationFrame(step);
+    requestAnimationFrame(animate);
+
   }
 
   async performTempoMatchedTransition() {
@@ -3457,4 +3468,4 @@ class AudioEngine {
 
 // Create singleton instance
 const audioEngine = new AudioEngine();
-export default audioEngine; 
+export default audioEngine;
