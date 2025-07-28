@@ -15,7 +15,7 @@ AutoDJ is a sophisticated desktop application that automatically mixes user-uplo
 
 ### 🎧 Audio Processing
 - **Stem Separation**: Uses Meta's Demucs for high-quality source separation
-- **Multiple Format Support**: MP3, WAV, FLAC, M4A, AAC
+- **Multiple Format Support**: MP3, WAV, FLAC, M4A, AAC (WAV recommended for analysis)
 - **Batch Processing**: Process multiple tracks simultaneously
 - **Real-time Visualization**: Live stem level monitoring and control
 
@@ -23,7 +23,7 @@ AutoDJ is a sophisticated desktop application that automatically mixes user-uplo
 - **YouTube Integration**: Download music directly from YouTube
 - **SoundCloud Support**: Import tracks from SoundCloud
 - **Quality Options**: Choose from 128kbps to 320kbps
-- **Format Conversion**: Convert to your preferred audio format
+- **Format Conversion**: Convert to your preferred audio format (default: WAV for best BPM/key analysis)
 - **Metadata Extraction**: Automatic title, artist, and duration detection
 
 ### 🎨 Modern Interface
@@ -120,12 +120,12 @@ npm run electron-pack
 - **Drag & Drop**: Simply drag music files into the upload area
 - **Batch Processing**: Process multiple files at once
 - **Progress Tracking**: Monitor processing status for each file
-- **Format Support**: Accepts MP3, WAV, FLAC, M4A, and AAC files
+- **Format Support**: Accepts MP3, WAV, FLAC, M4A, and AAC files (WAV preferred for analysis)
 
 ### Music Downloader
 - **URL Input**: Paste YouTube or SoundCloud links
 - **Quality Selection**: Choose audio quality from 128kbps to 320kbps
-- **Format Options**: Download in MP3, WAV, FLAC, or M4A format
+- **Format Options**: Download in MP3, WAV, FLAC, or M4A format (WAV is used by default)
 - **Auto Processing**: Optionally process stems immediately after download
 
 ## Technical Architecture

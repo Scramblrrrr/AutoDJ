@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class MusicDownloader:
-    def __init__(self, output_dir: str = "./downloads", quality: str = "320", format: str = "mp3"):
+    def __init__(self, output_dir: str = "./downloads", quality: str = "320", format: str = "wav"):
         """
         Initialize the music downloader.
         
@@ -40,16 +40,16 @@ class MusicDownloader:
         
         # Configure yt-dlp options
         self.ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',  # Prefer formats that don't need conversion
+            'format': 'bestaudio/best',
             'outtmpl': str(self.output_dir / '%(title)s.%(ext)s'),
             'extractaudio': True,
-            'audioformat': 'mp3',  # Default, will be changed based on format
-            'audioquality': quality if quality != '320' else '0',  # 0 means best quality
+            'audioformat': self.format,
+            'audioquality': quality if quality != '320' else '0',
             'embed_subs': False,
             'writesubtitles': False,
             'writeautomaticsub': False,
-            'noplaylist': True,  # Only download single video, not playlist
-            'prefer_ffmpeg': False,  # Don't require ffmpeg
+            'noplaylist': True,
+            'prefer_ffmpeg': True,
         }
         
         # Adjust options based on format
@@ -335,13 +335,13 @@ def main():
     """Main function to run when script is called directly."""
     if len(sys.argv) < 3:
         print("Usage: python downloader.py <url> <output_dir> [quality] [format]")
-        print("Example: python downloader.py 'https://youtube.com/watch?v=...' ./downloads 320 mp3")
+        print("Example: python downloader.py 'https://youtube.com/watch?v=...' ./downloads 320 wav")
         sys.exit(1)
     
     url = sys.argv[1]
     output_dir = sys.argv[2]
     quality = sys.argv[3] if len(sys.argv) > 3 else "320"
-    format_type = sys.argv[4] if len(sys.argv) > 4 else "mp3"
+    format_type = sys.argv[4] if len(sys.argv) > 4 else "wav"
     
     downloader = MusicDownloader(output_dir, quality, format_type)
     result = downloader.download(url)

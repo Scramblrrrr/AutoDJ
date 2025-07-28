@@ -36,7 +36,7 @@ class AutoDJStorage {
         downloadPath: './downloads',
         processedPath: './processed',
         defaultQuality: '320',
-        defaultFormat: 'mp3',
+        defaultFormat: 'wav',
         autoProcess: true,
         theme: 'dark',
         stemModel: 'htdemucs'
