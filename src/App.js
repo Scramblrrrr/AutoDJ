@@ -89,7 +89,7 @@ function App() {
     <AppContainer>
       <Sidebar>
         <Logo>
-          <img src="/Assets/AI%20DJ%20-%20Logo.png" alt="AutoDJ Logo" />
+          <img src="./Assets/AI DJ - Logo.png" alt="AutoDJ Logo" />
           <h1>AutoDJ</h1>
         </Logo>
         

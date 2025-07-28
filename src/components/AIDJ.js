@@ -1034,6 +1034,7 @@ function AIDJ() {
   const [deckBTrack, setDeckBTrack] = useState(null);
   const [deckBBeatGrid, setDeckBBeatGrid] = useState([]);
   const [deckBWaveform, setDeckBWaveform] = useState([]);
+  const [deckBCurrentTime, setDeckBCurrentTime] = useState(0);
   const [deckAPlaying, setDeckAPlaying] = useState(false);
   const [deckBPlaying, setDeckBPlaying] = useState(false);
   const [deckAQueue, setDeckAQueue] = useState([]);
@@ -1078,19 +1079,27 @@ function AIDJ() {
           }));
           break;
         case 'bpmDetected':
+          console.log('🎵 BPM detected:', data.originalBPM, 'Current:', data.currentBPM);
           setCurrentTrack(prev => ({
             ...prev,
-            bmp: data.bmp,
+            bmp: data.bmp || data.bpm,
+            bpm: data.bpm || data.bmp,
+            originalBPM: data.originalBPM || data.bpm,
+            currentBPM: data.currentBPM || data.bpm,
+            pitchRatio: data.pitchRatio || 1.0,
             key: data.key // Key might be included with BPM detection
           }));
           setBeatGrid(data.beatGrid || []);
           setWaveformData(data.waveform || []);
           break;
         case 'keyDetected':
-          console.log('🎼 Key detected:', data.key);
+          console.log('🎼 Key detected:', data.originalKey?.name, 'Current:', data.currentKey?.name);
           setCurrentTrack(prev => ({
             ...prev,
-            key: data.key
+            key: data.key || data.originalKey,
+            originalKey: data.originalKey || data.key,
+            currentKey: data.currentKey || data.key,
+            keyShift: data.keyShift || 0
           }));
           break;
         case 'trackEnded':
@@ -1188,11 +1197,24 @@ function AIDJ() {
             console.log('⚠️ No tracks available in any queue for transition');
           }
           break;
+        case 'transitionButtonReset':
+          // Reset transition button immediately when transition completes
+          const transitionButton = document.querySelector('[title*="Force immediate AI transition"]');
+          if (transitionButton) {
+            transitionButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Transition Quick!';
+            transitionButton.disabled = false;
+            transitionButton.style.opacity = '1';
+          }
+          break;
         case 'deckBTrackLoaded':
           console.log('🎵 Deck B track loaded with beatgrid:', data.track.title);
           setDeckBTrack(data.track);
           setDeckBBeatGrid(data.beatGrid || []);
           setDeckBWaveform(data.waveform || []);
+          setDeckBCurrentTime(0); // Reset Deck B time when new track loads
+          break;
+        case 'deckBTimeUpdate':
+          setDeckBCurrentTime(data.currentTime || 0);
           break;
       }
     };
@@ -1297,7 +1319,9 @@ function AIDJ() {
         artist: loadedTrack.artist,
         duration: loadedTrack.duration,
         currentTime: 0,
-        bpm: loadedTrack.bpm
+        bmp: loadedTrack.bmp || loadedTrack.bpm || 120,
+        bpm: loadedTrack.bpm || loadedTrack.bmp || 120,
+        key: loadedTrack.key
       });
       
     } catch (error) {
@@ -1539,7 +1563,16 @@ function AIDJ() {
   const progress = currentTrack.duration > 0 ? (currentTrack.currentTime / currentTrack.duration) * 100 : 0;
 
   return (
-    <AIDJContainer>
+    <>
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+      <AIDJContainer>
       <Header>
         <h1>AI|DJ Studio</h1>
         <div>
@@ -1573,6 +1606,24 @@ function AIDJ() {
               onClick={() => {
                 console.log('🚀 Manual transition trigger activated!');
                 if (audioEngineRef.current) {
+                  // Show immediate user feedback
+                  const button = document.querySelector('[title*="Force immediate AI transition"]');
+                  if (button) {
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border: 2px solid #fff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>Processing...</div>';
+                    button.disabled = true;
+                    button.style.opacity = '0.8';
+                    
+                    // Restore button after 8 seconds (matches professional transition duration)
+                    setTimeout(() => {
+                      if (button) {
+                        button.innerHTML = originalText;
+                        button.disabled = false;
+                        button.style.opacity = '1';
+                      }
+                    }, 8000);
+                  }
+                  
                   audioEngineRef.current.triggerManualTransition();
                 }
               }}
@@ -1595,12 +1646,16 @@ function AIDJ() {
                 gap: '6px'
               }}
               onMouseEnter={(e) => {
-                e.target.style.transform = 'scale(1.05)';
-                e.target.style.boxShadow = '0 6px 20px rgba(255, 107, 53, 0.6)';
+                if (!e.target.disabled) {
+                  e.target.style.transform = 'scale(1.05)';
+                  e.target.style.boxShadow = '0 6px 20px rgba(255, 107, 53, 0.6)';
+                }
               }}
               onMouseLeave={(e) => {
-                e.target.style.transform = 'scale(1)';
-                e.target.style.boxShadow = '0 4px 15px rgba(255, 107, 53, 0.4)';
+                if (!e.target.disabled) {
+                  e.target.style.transform = 'scale(1)';
+                  e.target.style.boxShadow = '0 4px 15px rgba(255, 107, 53, 0.4)';
+                }
               }}
               title="🚀 Force immediate AI transition using advanced looping, layering, and beat-matching techniques!"
             >
@@ -1668,7 +1723,7 @@ function AIDJ() {
               deckAWaveform={waveformData}
               deckBWaveform={deckBWaveform}
               currentTime={currentTrack.currentTime || 0}
-              deckBCurrentTime={0}
+              deckBCurrentTime={deckBCurrentTime}
               onCuePointClick={(deck, cue) => {
                 console.log(`🎯 Cue point clicked: ${deck} - ${cue.label} @ ${cue.time}s`);
                 // TODO: Implement cue point functionality
@@ -1720,14 +1775,34 @@ function AIDJ() {
                       </h4>
                       <div 
                         className="volume-slider"
-                        onClick={autoMixEnabled ? undefined : (e) => {
-                          const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
-                          const x = e.clientX - rect.left;
-                          const volume = x / rect.width;
-                          handleStemVolumeChange(`deckA_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                        onMouseDown={autoMixEnabled ? undefined : (e) => {
+                          e.preventDefault();
+                          const sliderElement = e.currentTarget;
+                          const rect = sliderElement.getBoundingClientRect();
+                          
+                          const handleMouseMove = (moveEvent) => {
+                            const x = Math.max(0, Math.min(rect.width, moveEvent.clientX - rect.left));
+                            const volume = x / rect.width;
+                            handleStemVolumeChange(`deckA_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                          };
+                          
+                          const handleMouseUp = () => {
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+                            document.body.style.userSelect = '';
+                          };
+                          
+                          // Set initial value
+                          handleMouseMove(e);
+                          
+                          // Prevent text selection during drag
+                          document.body.style.userSelect = 'none';
+                          
+                          document.addEventListener('mousemove', handleMouseMove);
+                          document.addEventListener('mouseup', handleMouseUp);
                         }}
                         style={{ 
-                          cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
+                          cursor: autoMixEnabled ? 'not-allowed' : 'grab',
                           pointerEvents: autoMixEnabled ? 'none' : 'auto'
                         }}
                       >
@@ -1767,14 +1842,34 @@ function AIDJ() {
                        </h4>
                        <div 
                          className="volume-slider"
-                         onClick={autoMixEnabled ? undefined : (e) => {
-                           const sliderElement = e.currentTarget; const rect = sliderElement.getBoundingClientRect();
-                           const x = e.clientX - rect.left;
-                           const volume = x / rect.width;
-                           handleStemVolumeChange(`deckB_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                         onMouseDown={autoMixEnabled ? undefined : (e) => {
+                           e.preventDefault();
+                           const sliderElement = e.currentTarget;
+                           const rect = sliderElement.getBoundingClientRect();
+                           
+                           const handleMouseMove = (moveEvent) => {
+                             const x = Math.max(0, Math.min(rect.width, moveEvent.clientX - rect.left));
+                             const volume = x / rect.width;
+                             handleStemVolumeChange(`deckB_${stem.key}`, Math.max(0, Math.min(1, volume)));
+                           };
+                           
+                           const handleMouseUp = () => {
+                             document.removeEventListener('mousemove', handleMouseMove);
+                             document.removeEventListener('mouseup', handleMouseUp);
+                             document.body.style.userSelect = '';
+                           };
+                           
+                           // Set initial value
+                           handleMouseMove(e);
+                           
+                           // Prevent text selection during drag
+                           document.body.style.userSelect = 'none';
+                           
+                           document.addEventListener('mousemove', handleMouseMove);
+                           document.addEventListener('mouseup', handleMouseUp);
                          }}
                          style={{ 
-                           cursor: autoMixEnabled ? 'not-allowed' : 'pointer',
+                           cursor: autoMixEnabled ? 'not-allowed' : 'grab',
                            pointerEvents: autoMixEnabled ? 'none' : 'auto'
                          }}
                        >
@@ -1799,7 +1894,12 @@ function AIDJ() {
               <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                 <div className="deck-info">
                   <div className="bmp-value" style={{ color: '#00ff88', fontSize: '24px', fontWeight: 'bold' }}>
-                    {currentTrack.bmp || 120}
+                    {currentTrack.currentBPM || currentTrack.bmp || 120}
+                    {currentTrack.originalBPM && currentTrack.currentBPM !== currentTrack.originalBPM && (
+                      <div style={{ fontSize: '14px', color: '#aaa', fontWeight: 'normal' }}>
+                        (Original: {currentTrack.originalBPM})
+                      </div>
+                    )}
                   </div>
                   <div className="bmp-label">Deck A BPM</div>
                   <div className="key-display" style={{ 
@@ -1809,9 +1909,16 @@ function AIDJ() {
                     fontFamily: 'monospace'
                   }}>
                     {currentTrack.key ? (
-                      <span title={`Musical Key: ${currentTrack.key.name} (${currentTrack.key.camelot} on Camelot Wheel)`}>
-                        🎼 {currentTrack.key.name} ({currentTrack.key.camelot})
-                      </span>
+                      <div>
+                        <span title={`Musical Key: ${currentTrack.currentKey?.name || currentTrack.key.name} (${currentTrack.currentKey?.camelot || currentTrack.key.camelot} on Camelot Wheel)`}>
+                          🎼 {currentTrack.currentKey?.name || currentTrack.key.name} ({currentTrack.currentKey?.camelot || currentTrack.key.camelot})
+                        </span>
+                        {currentTrack.originalKey && currentTrack.keyShift !== 0 && (
+                          <div style={{ fontSize: '10px', color: '#aaa' }}>
+                            (Original: {currentTrack.originalKey.name})
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <span style={{ color: '#666' }}>🎼 Analyzing key...</span>
                     )}
@@ -1819,7 +1926,12 @@ function AIDJ() {
                 </div>
                 <div className="deck-info">
                   <div className="bmp-value" style={{ color: '#88ff00', fontSize: '24px', fontWeight: 'bold' }}>
-                    {deckBTrack?.bmp || (deckBQueue.length > 0 ? deckBQueue[0].bmp || 120 : 120)}
+                    {deckBTrack?.currentBPM || deckBTrack?.bmp || (deckBQueue.length > 0 ? deckBQueue[0].bmp || 120 : 120)}
+                    {deckBTrack?.originalBPM && deckBTrack?.currentBPM !== deckBTrack?.originalBPM && (
+                      <div style={{ fontSize: '14px', color: '#aaa', fontWeight: 'normal' }}>
+                        (Original: {deckBTrack.originalBPM})
+                      </div>
+                    )}
                   </div>
                   <div className="bmp-label">Deck B BPM</div>
                   <div className="key-display" style={{ 
@@ -1829,9 +1941,16 @@ function AIDJ() {
                     fontFamily: 'monospace'
                   }}>
                     {deckBTrack?.key ? (
-                      <span title={`Musical Key: ${deckBTrack.key.name} (${deckBTrack.key.camelot} on Camelot Wheel)`}>
-                        🎼 {deckBTrack.key.name} ({deckBTrack.key.camelot})
-                      </span>
+                      <div>
+                        <span title={`Musical Key: ${deckBTrack.currentKey?.name || deckBTrack.key.name} (${deckBTrack.currentKey?.camelot || deckBTrack.key.camelot} on Camelot Wheel)`}>
+                          🎼 {deckBTrack.currentKey?.name || deckBTrack.key.name} ({deckBTrack.currentKey?.camelot || deckBTrack.key.camelot})
+                        </span>
+                        {deckBTrack.originalKey && deckBTrack.keyShift !== 0 && (
+                          <div style={{ fontSize: '10px', color: '#aaa' }}>
+                            (Original: {deckBTrack.originalKey.name})
+                          </div>
+                        )}
+                      </div>
                     ) : deckBQueue.length > 0 ? (
                       <span style={{ color: '#666' }}>🎼 Loading key...</span>
                     ) : (
@@ -2738,6 +2857,7 @@ function AIDJ() {
         </SongSelectionModal>
       )}
     </AIDJContainer>
+    </>
   );
 }
 

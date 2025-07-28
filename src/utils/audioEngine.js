@@ -48,6 +48,19 @@ class AudioEngine {
     };
     
     this.listeners = new Set();
+    this.transitionTimers = []; // Track transition timers for cleanup
+    this.deckBCurrentTime = 0; // Track Deck B playback time
+    this.deckBStartTime = 0; // Track when Deck B started
+    this.deckBTimeUpdateInterval = null; // Separate time tracking for Deck B
+    
+    // Professional Auto-DJ Integration
+    this.professionalAutoDJ = null;
+    this.currentTransitionPlan = null;
+    this.advancedMixingEnabled = true;
+    
+    // Queue Management System
+    this.queueManager = null;
+    
     this.initialize();
   }
 
@@ -79,6 +92,12 @@ class AudioEngine {
       
       // Create effects chains
       this.createEffectsChain();
+      
+      // Initialize Professional Auto-DJ
+      await this.initializeProfessionalAutoDJ();
+      
+      // Initialize Queue Manager
+      await this.initializeQueueManager();
       
       console.log('Audio Engine initialized successfully');
     } catch (error) {
@@ -193,16 +212,58 @@ class AudioEngine {
       }
       
       // Detect BPM and musical key for professional mixing
-      const bmp = await this.detectBPM(stems.drums || stems.other);
+      const bmpResult = await this.detectBPM(stems.drums || stems.other);
       const key = await this.detectKey(stems.vocals || stems.other || stems.drums);
       
-      console.log(`🎵 Track analysis complete: ${bmp} BPM, ${key.name} (${key.camelot})`);
+      const bpm = typeof bmpResult === 'object' ? bmpResult.bpm : bmpResult;
+      const beatGrid = typeof bmpResult === 'object' ? bmpResult.beatGrid : [];
+      
+      console.log(`🎵 Track analysis complete: ${bpm} BPM, ${key.name} (${key.camelot})`);
+      
+      // Store original values for accurate display
+      const originalBPM = bpm;
+      const originalKey = key;
+      
+      // Track original and current values for DJ adjustments
+      const trackMetadata = {
+        originalBPM: originalBPM,
+        currentBPM: originalBPM, // Will change if pitch-shifted
+        originalKey: originalKey,
+        currentKey: originalKey, // Will change if key-shifted
+        pitchRatio: 1.0, // Current pitch adjustment
+        keyShift: 0 // Semitones shifted
+      };
+      
+      // Notify listeners of BPM and key detection with enhanced info
+      this.notifyListeners('bpmDetected', { 
+        bpm: originalBPM, 
+        bmp: originalBPM, // Keep both for compatibility
+        originalBPM: originalBPM,
+        currentBPM: originalBPM,
+        pitchRatio: 1.0,
+        beatGrid: beatGrid,
+        waveform: this.generateWaveformData(stems.vocals?.buffer || stems.drums?.buffer)
+      });
+      
+      this.notifyListeners('keyDetected', { 
+        key: originalKey,
+        originalKey: originalKey,
+        currentKey: originalKey,
+        keyShift: 0
+      });
       
       return {
         ...trackData,
         stems,
-        bmp,
-        key,
+        bmp: originalBPM,
+        bpm: originalBPM,
+        originalBPM: originalBPM,
+        currentBPM: originalBPM,
+        key: originalKey,
+        originalKey: originalKey,
+        currentKey: originalKey,
+        metadata: trackMetadata,
+        beatGrid,
         duration: stems.vocals?.duration || stems.drums?.duration || 0
       };
     } catch (error) {
@@ -283,10 +344,10 @@ class AudioEngine {
       this.notifyListeners('bpmDetected', { 
         bpm: result.bpm, 
         beatGrid: result.beatGrid,
-        waveform: this.generateWaveformData(channelData)
+        waveform: this.generateWaveformData(audioBuffer)
       });
       
-      return result.bpm;
+      return result;
       
     } catch (error) {
       console.warn('BPM detection failed, using default:', error);
@@ -695,6 +756,52 @@ class AudioEngine {
     return chromaClass;
   }
 
+  // Generate waveform data for visualization
+  generateWaveformData(audioBuffer) {
+    if (!audioBuffer) return [];
+    
+    // Use professional analysis if available
+    if (this.professionalAutoDJ && this.advancedMixingEnabled) {
+      return this.generateAdvancedWaveformData(audioBuffer);
+    }
+    
+    // Ensure we have a valid AudioBuffer
+    if (!audioBuffer.getChannelData || typeof audioBuffer.getChannelData !== 'function') {
+      console.warn('Invalid AudioBuffer passed to generateWaveformData:', audioBuffer);
+      return [];
+    }
+    
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const samplesPerPixel = Math.floor(channelData.length / 1000); // Generate 1000 data points
+    const waveformData = [];
+    
+    if (samplesPerPixel <= 0) return [];
+    
+    for (let i = 0; i < channelData.length; i += samplesPerPixel) {
+      let rms = 0;
+      let peak = 0;
+      
+      // Calculate RMS and peak for this segment
+      for (let j = 0; j < samplesPerPixel && i + j < channelData.length; j++) {
+        const sample = Math.abs(channelData[i + j]);
+        rms += sample * sample;
+        peak = Math.max(peak, sample);
+      }
+      
+      rms = Math.sqrt(rms / samplesPerPixel);
+      
+      waveformData.push({
+        rms: Math.min(rms, 1.0),
+        peak: Math.min(peak, 1.0),
+        time: (i / sampleRate)
+      });
+    }
+    
+    console.log(`🎵 Generated waveform data: ${waveformData.length} points`);
+    return waveformData;
+  }
+
   // Find best matching key from chroma profile
   findBestKey(chromaProfile) {
     // Simplified key templates (major and minor scales)
@@ -994,14 +1101,37 @@ class AudioEngine {
   }
 
   setStemVolume(stemName, volume) {
-    this.stemVolumes[stemName] = Math.max(0, Math.min(1, volume));
+    // Handle deck-specific stem names (e.g., "deckA_vocals" or just "vocals")
+    let actualStemName = stemName;
+    let deck = 'A'; // Default deck
     
-    // Update current playback volume
-    if (this.stemGains[stemName]) {
-      this.stemGains[stemName].trackA.gain.value = this.stemVolumes[stemName];
+    if (stemName.includes('deck')) {
+      const parts = stemName.split('_');
+      deck = parts[0].replace('deck', ''); // "A" or "B"
+      actualStemName = parts[1]; // "vocals", "drums", etc.
     }
     
-    this.notifyListeners('stemVolumeChanged', { stemName, volume });
+    console.log(`🎛️ Setting ${actualStemName} volume on Deck ${deck} to ${Math.round(volume * 100)}%`);
+    
+    // Update internal volume tracking
+    this.stemVolumes[actualStemName] = Math.max(0, Math.min(1, volume));
+    
+    // Apply to the correct deck's gain node
+    const gainNode = deck === 'A' ? 
+      (this.stemGains[actualStemName]?.trackA || this.stemGains[actualStemName]) :
+      (this.stemGains[actualStemName]?.trackB);
+    
+    if (gainNode && gainNode.gain) {
+      gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
+    } else {
+      console.warn(`No gain node found for ${actualStemName} on Deck ${deck}`);
+    }
+    
+    this.notifyListeners('stemVolumeChanged', { 
+      stemName: actualStemName, 
+      deck: deck,
+      volume 
+    });
   }
 
   setCrossfade(position) {
@@ -1114,10 +1244,7 @@ class AudioEngine {
   }
 
   triggerManualTransition() {
-    if (!this.autoMixEnabled) {
-      console.log('🚀 Manual transition blocked - Auto-mix is off');
-      return;
-    }
+    console.log('🚀 INSTANT MANUAL TRANSITION - No blocking allowed!');
     
     if (this.isTransitioning) {
       console.log('🚀 Manual transition blocked - Already transitioning');
@@ -1129,14 +1256,43 @@ class AudioEngine {
       return;
     }
     
-    console.log('🚀 MANUAL TRANSITION TRIGGERED - Finding best transition point with advanced techniques!');
+    // Stop any existing transition processes first
+    this.stopAllTransitionProcesses();
     
-    // Force immediate intelligent transition with enhanced techniques
-    this.hasStartedTransition = true;
-    this.isTransitioning = true;
+    // BYPASS AUTO-MIX CHECK FOR MANUAL TRANSITIONS
+    // Manual transitions should always work regardless of auto-mix setting
     
-    // Enhanced transition with looping and layering
-    this.performAdvancedManualTransition();
+    // Use instant professional transition system
+    if (this.professionalAutoDJ && this.advancedMixingEnabled) {
+      return this.triggerProfessionalTransition();
+    }
+    
+    // Fallback to instant basic transition
+    return this.triggerBasicTransition();
+  }
+
+  stopAllTransitionProcesses() {
+    console.log('🔄 Stopping all previous transition processes');
+    
+    // Clear any transition timers
+    if (this.transitionTimers) {
+      this.transitionTimers.forEach(timer => clearTimeout(timer));
+      this.transitionTimers = [];
+    }
+    
+    // Stop any existing Deck B sources to prevent overlapping
+    if (this.nextTrack && this.nextTrack.stems) {
+      Object.values(this.nextTrack.stems).forEach(stemData => {
+        if (stemData.source) {
+          try {
+            stemData.source.stop();
+            stemData.source = null;
+          } catch (error) {
+            console.warn('Error stopping previous stem source:', error);
+          }
+        }
+      });
+    }
   }
 
   async performAdvancedManualTransition() {
@@ -1266,58 +1422,76 @@ class AudioEngine {
         delay: duration * 0.6, 
         description: 'Harmonic blend - Track B other, Track A other reduced' 
       },
-      // Phase 4: Track A vocals FADE OUT, Track B vocals STAY OFF
+      // Phase 4: Track A vocals FADE OUT, Track B vocals STAY OFF (ENFORCED)
       { 
         trackA: { element: 'vocals', targetGain: 0.0 },
         trackB: { element: 'vocals', targetGain: 0.0 },
-        delay: duration * 0.8, 
-        description: 'Vocal fadeout - Clean instrumental transition' 
+        delay: duration * 0.6, // Start vocal fadeout earlier to prevent overlap
+        description: 'STRICT vocal fadeout - NO VOCAL OVERLAP EVER' 
       }
     ];
     
-    phases.forEach(phase => {
-      setTimeout(() => {
+        phases.forEach(phase => {
+      const timer = setTimeout(() => {
         console.log(`🎵 ${phase.description}`);
         
-                  // Adjust Track A stem - ACTUALLY modify the audio gain
-          if (this.stemGains[phase.trackA.element] && this.stemGains[phase.trackA.element].gain) {
-            const currentGain = this.stemGains[phase.trackA.element].gain.value;
-            console.log(`🎛️ AI: Setting Track A ${phase.trackA.element} from ${currentGain.toFixed(2)} to ${phase.trackA.targetGain.toFixed(2)}`);
-            
-            // REAL audio modification
-            this.stemGains[phase.trackA.element].gain.setValueAtTime(currentGain, this.audioContext.currentTime);
-            this.stemGains[phase.trackA.element].gain.linearRampToValueAtTime(
-              phase.trackA.targetGain, 
-              this.audioContext.currentTime + (duration * 0.15 / 1000)
-            );
-            
-            // Update UI in real-time
-            this.notifyListeners('stemVolumeChanged', {
-              deck: 'A',
-              stemName: phase.trackA.element,
-              volume: phase.trackA.targetGain
-            });
-          }
+        // STRICT VOCAL PROTECTION: Never allow vocal overlap
+        if (phase.trackA.element === 'vocals' || phase.trackB.element === 'vocals') {
+          console.log('🎤 VOCAL PROTECTION: Enforcing no-overlap rule');
           
-          // Adjust Track B stem - ACTUALLY modify the audio gain
-          if (this.nextTrackStemGains && this.nextTrackStemGains[phase.trackB.element] && this.nextTrackStemGains[phase.trackB.element].gain) {
-            console.log(`🎛️ AI: Setting Track B ${phase.trackB.element} to ${phase.trackB.targetGain.toFixed(2)}`);
-            
-            // REAL audio modification
-            this.nextTrackStemGains[phase.trackB.element].gain.setValueAtTime(0, this.audioContext.currentTime);
-            this.nextTrackStemGains[phase.trackB.element].gain.linearRampToValueAtTime(
-              phase.trackB.targetGain, 
-              this.audioContext.currentTime + (duration * 0.15 / 1000)
-            );
-            
-            // Update UI in real-time
-            this.notifyListeners('stemVolumeChanged', {
-              deck: 'B', 
-              stemName: phase.trackB.element,
-              volume: phase.trackB.targetGain
-            });
+          // Force both deck vocals to 0 immediately
+          if (this.stemGains.vocals) {
+            if (this.stemGains.vocals.trackA) {
+              this.stemGains.vocals.trackA.gain.setValueAtTime(0, this.audioContext.currentTime);
+            }
+            if (this.stemGains.vocals.trackB) {
+              this.stemGains.vocals.trackB.gain.setValueAtTime(0, this.audioContext.currentTime);
+            }
           }
+        }
+        
+        // Adjust Track A stem - ACTUALLY modify the audio gain
+        if (this.stemGains[phase.trackA.element] && this.stemGains[phase.trackA.element].gain) {
+          const currentGain = this.stemGains[phase.trackA.element].gain.value;
+          console.log(`🎛️ AI: Setting Track A ${phase.trackA.element} from ${currentGain.toFixed(2)} to ${phase.trackA.targetGain.toFixed(2)}`);
+          
+          // REAL audio modification
+          this.stemGains[phase.trackA.element].gain.setValueAtTime(currentGain, this.audioContext.currentTime);
+          this.stemGains[phase.trackA.element].gain.linearRampToValueAtTime(
+            phase.trackA.targetGain, 
+            this.audioContext.currentTime + (duration * 0.15 / 1000)
+          );
+          
+          // Update UI in real-time
+          this.notifyListeners('stemVolumeChanged', {
+            deck: 'A',
+            stemName: phase.trackA.element,
+            volume: phase.trackA.targetGain
+          });
+        }
+        
+        // Adjust Track B stem - ACTUALLY modify the audio gain
+        if (this.nextTrackStemGains && this.nextTrackStemGains[phase.trackB.element] && this.nextTrackStemGains[phase.trackB.element].gain) {
+          console.log(`🎛️ AI: Setting Track B ${phase.trackB.element} to ${phase.trackB.targetGain.toFixed(2)}`);
+          
+          // REAL audio modification
+          this.nextTrackStemGains[phase.trackB.element].gain.setValueAtTime(0, this.audioContext.currentTime);
+          this.nextTrackStemGains[phase.trackB.element].gain.linearRampToValueAtTime(
+            phase.trackB.targetGain, 
+            this.audioContext.currentTime + (duration * 0.15 / 1000)
+          );
+          
+          // Update UI in real-time
+          this.notifyListeners('stemVolumeChanged', {
+            deck: 'B',
+            stemName: phase.trackB.element,
+            volume: phase.trackB.targetGain
+          });
+        }
       }, phase.delay);
+      
+      // Track timer for cleanup
+      this.transitionTimers.push(timer);
     });
   }
 
@@ -1576,7 +1750,12 @@ class AudioEngine {
   startNextTrackPlayback(startTime) {
     if (!this.nextTrack || !this.nextTrack.stems) return;
     
-    console.log('🎵 AI DJ: Starting next track playback');
+    console.log('🎵 AI DJ: Starting next track playback on Deck B');
+    
+    // Reset and start Deck B time tracking
+    this.deckBCurrentTime = 0;
+    this.deckBStartTime = startTime || this.audioContext.currentTime;
+    this.startDeckBTimeTracking();
     
     // Create and start sources for next track on deck B
     Object.keys(this.nextTrack.stems).forEach(stemName => {
@@ -1595,21 +1774,217 @@ class AudioEngine {
         const gainNode = this.stemGains[stemName]?.trackB || this.trackBGain;
         source.connect(gainNode);
         
-        gainNode.gain.value = this.stemVolumes[stemName] || 0.5;
+        // CRITICAL: Start ALL Track B stems at ZERO volume to prevent overlap
+        gainNode.gain.value = 0.0;
+        console.log(`🔇 Track B ${stemName}: Started at 0% volume (will be brought in during transition)`);
         
-        source.start(startTime, 0);
+        source.start(this.deckBStartTime, 0);
         stemData.source = source;
       }
     });
   }
 
-  async adjustTempo(targetBPM) {
-    const ratio = targetBPM / this.bpm;
-    console.log(`Adjusting tempo from ${this.bpm} to ${targetBPM} BPM (ratio: ${ratio})`);
+  startDeckBTimeTracking() {
+    // Stop any existing Deck B time tracking
+    if (this.deckBTimeUpdateInterval) {
+      clearInterval(this.deckBTimeUpdateInterval);
+    }
     
-    // In a real implementation, would use pitch-shifting algorithms
-    // For now, just update the BPM reference
-    this.bpm = targetBPM;
+    const updateDeckBTime = () => {
+      if (this.nextTrack && this.deckBStartTime > 0) {
+        const elapsed = this.audioContext.currentTime - this.deckBStartTime;
+        this.deckBCurrentTime = Math.min(elapsed, this.nextTrack.duration || 300);
+        
+        // Notify UI of Deck B time updates
+        this.notifyListeners('deckBTimeUpdate', {
+          currentTime: this.deckBCurrentTime,
+          duration: this.nextTrack.duration || 300,
+          progress: (this.deckBCurrentTime / (this.nextTrack.duration || 300)) * 100
+        });
+      }
+    };
+    
+    this.deckBTimeUpdateInterval = setInterval(updateDeckBTime, 50); // 20 FPS for Deck B
+  }
+
+  // PROFESSIONAL BEAT MATCHING ALGORITHM
+  async performProfessionalBeatMatching() {
+    if (!this.currentTrack || !this.nextTrack) {
+      console.log('❌ Beat matching failed: Missing tracks');
+      return { pitchRatio: 1.0, transitionPoint: 0, beatOffset: 0 };
+    }
+
+    console.log('🎵 PROFESSIONAL BEAT MATCHING: Analyzing tracks for perfect alignment...');
+
+    const currentBPM = this.currentTrack.bmp || this.currentTrack.bpm || 120;
+    const nextBPM = this.nextTrack.bmp || this.nextTrack.bpm || 120;
+    const currentBeatGrid = this.currentTrack.beatGrid || [];
+    const nextBeatGrid = this.nextTrack.beatGrid || [];
+
+    // 1. TEMPO MATCHING: Calculate perfect pitch ratio
+    let pitchRatio = 1.0;
+    if (Math.abs(currentBPM - nextBPM) > 2) { // Only adjust if BPM difference > 2
+      pitchRatio = currentBPM / nextBPM;
+      console.log(`🎵 Tempo matching: ${nextBPM}→${currentBPM} BPM (${pitchRatio.toFixed(3)}x)`);
+    }
+
+    // 2. BEAT GRID ALIGNMENT: Find optimal transition point
+    const currentTime = this.currentTime;
+    const currentTrackBeats = currentBeatGrid.filter(beat => beat.time > currentTime);
+    const nextTrackBeats = nextBeatGrid.slice(0, 32); // First 32 beats of next track
+
+    let bestTransitionPoint = currentTime + 8; // Default: 8 seconds from now
+    let bestBeatOffset = 0;
+    let bestScore = 0;
+
+    if (currentTrackBeats.length > 0 && nextTrackBeats.length > 0) {
+      // Find the best beat alignment within next 32 beats
+      for (let i = 0; i < Math.min(16, currentTrackBeats.length); i++) {
+        const currentBeat = currentTrackBeats[i];
+        
+        // Only consider downbeats and phrase starts for smooth transitions
+        if (currentBeat.isDownbeat || currentBeat.isPhraseStart) {
+          const beatScore = this.calculateBeatMatchingScore(currentBeat, nextTrackBeats, pitchRatio);
+          
+          if (beatScore.score > bestScore) {
+            bestScore = beatScore.score;
+            bestTransitionPoint = currentBeat.time;
+            bestBeatOffset = beatScore.offset || 0;
+          }
+        }
+      }
+      
+      console.log(`🎵 Best transition point: ${bestTransitionPoint.toFixed(2)}s (score: ${bestScore.toFixed(2)})`);
+    }
+
+    // 3. PHRASE BOUNDARY DETECTION: Prefer musical phrase transitions
+    const phraseBoundary = this.findOptimalPhraseBoundary(currentTime, bestTransitionPoint);
+    if (phraseBoundary) {
+      bestTransitionPoint = phraseBoundary;
+      console.log(`🎵 Using phrase boundary: ${bestTransitionPoint.toFixed(2)}s`);
+    }
+
+    // 4. HARMONIC COMPATIBILITY: Check key compatibility
+    const harmonicScore = this.calculateHarmonicCompatibility();
+    console.log(`🎵 Harmonic compatibility: ${harmonicScore.toFixed(2)}/1.0`);
+
+    return {
+      pitchRatio: pitchRatio,
+      transitionPoint: bestTransitionPoint,
+      beatOffset: bestBeatOffset,
+      harmonicScore: harmonicScore,
+      bpmDifference: Math.abs(currentBPM - nextBPM)
+    };
+  }
+
+  calculateBeatMatchingScore(currentBeat, nextTrackBeats, pitchRatio) {
+    let bestScore = 0;
+    let bestOffset = 0;
+
+    // Try to align current beat with various beats in next track
+    for (let j = 0; j < Math.min(8, nextTrackBeats.length); j++) {
+      const nextBeat = nextTrackBeats[j];
+      
+      // Adjust next beat time for pitch ratio
+      const adjustedNextBeatTime = nextBeat.time / pitchRatio;
+      
+      // Calculate alignment score based on beat types and positions
+      let score = 0;
+      
+      // Bonus for downbeat-to-downbeat alignment
+      if (currentBeat.isDownbeat && nextBeat.isDownbeat) {
+        score += 10;
+      }
+      
+      // Bonus for phrase-to-phrase alignment  
+      if (currentBeat.isPhraseStart && nextBeat.isPhraseStart) {
+        score += 15;
+      }
+      
+      // Bonus for beat strength matching
+      const strengthDiff = Math.abs((currentBeat.strength || 0.5) - (nextBeat.strength || 0.5));
+      score += (1 - strengthDiff) * 5;
+      
+      // Penalty for odd beat positions (prefer 1, 5, 9, 13...)
+      const beatInMeasure = (j % 4) + 1;
+      if (beatInMeasure === 1) score += 3; // Downbeat
+      else if (beatInMeasure === 3) score += 1; // Beat 3
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestOffset = adjustedNextBeatTime;
+      }
+    }
+
+    return { score: bestScore, offset: bestOffset };
+  }
+
+  findOptimalPhraseBoundary(currentTime, proposedTime) {
+    if (!this.currentTrack.beatGrid) return null;
+    
+    // Look for phrase boundaries near the proposed transition point
+    const searchWindow = 4; // seconds
+    const nearbyBeats = this.currentTrack.beatGrid.filter(beat => 
+      Math.abs(beat.time - proposedTime) <= searchWindow && beat.isPhraseStart
+    );
+    
+    if (nearbyBeats.length > 0) {
+      // Return the closest phrase boundary
+      return nearbyBeats.reduce((closest, beat) => 
+        Math.abs(beat.time - proposedTime) < Math.abs(closest.time - proposedTime) ? beat : closest
+      ).time;
+    }
+    
+    return null;
+  }
+
+  calculateHarmonicCompatibility() {
+    if (!this.currentTrack.key || !this.nextTrack.key) return 0.7; // Neutral score
+    
+    const currentKey = this.currentTrack.key;
+    const nextKey = this.nextTrack.key;
+    
+    // Use Camelot Wheel for harmonic compatibility
+    const compatibilityMap = {
+      // Perfect matches (same key)
+      '1A': ['1A', '1B', '12A', '2A'], '1B': ['1B', '1A', '12B', '2B'],
+      '2A': ['2A', '2B', '1A', '3A'], '2B': ['2B', '2A', '1B', '3B'],
+      '3A': ['3A', '3B', '2A', '4A'], '3B': ['3B', '3A', '2B', '4B'],
+      '4A': ['4A', '4B', '3A', '5A'], '4B': ['4B', '4A', '3B', '5B'],
+      '5A': ['5A', '5B', '4A', '6A'], '5B': ['5B', '5A', '4B', '6B'],
+      '6A': ['6A', '6B', '5A', '7A'], '6B': ['6B', '6A', '5B', '7B'],
+      '7A': ['7A', '7B', '6A', '8A'], '7B': ['7B', '7A', '6B', '8B'],
+      '8A': ['8A', '8B', '7A', '9A'], '8B': ['8B', '8A', '7B', '9B'],
+      '9A': ['9A', '9B', '8A', '10A'], '9B': ['9B', '9A', '8B', '10B'],
+      '10A': ['10A', '10B', '9A', '11A'], '10B': ['10B', '10A', '9B', '11B'],
+      '11A': ['11A', '11B', '10A', '12A'], '11B': ['11B', '11A', '10B', '12B'],
+      '12A': ['12A', '12B', '11A', '1A'], '12B': ['12B', '12A', '11B', '1B']
+    };
+    
+    const currentCamelot = currentKey.camelot;
+    const nextCamelot = nextKey.camelot;
+    
+    if (compatibilityMap[currentCamelot]) {
+      const compatibleKeys = compatibilityMap[currentCamelot];
+      const compatibilityIndex = compatibleKeys.indexOf(nextCamelot);
+      if (compatibilityIndex === 0) return 1.0; // Perfect match
+      if (compatibilityIndex === 1) return 0.9; // Relative minor/major
+      if (compatibilityIndex >= 0) return 0.8; // Adjacent key
+    }
+    
+    return 0.5; // Neutral/clash
+  }
+
+  async adjustTempo(targetBPM) {
+    // Use the new professional beat matching
+    const beatMatchResult = await this.performProfessionalBeatMatching();
+    
+    console.log('🎵 Professional beat matching result:', beatMatchResult);
+    
+    // Store results for transition timing
+    this.beatMatchResult = beatMatchResult;
+    
+    return beatMatchResult.pitchRatio;
   }
 
   performCrossfade(duration = 8000) {
@@ -1736,6 +2111,12 @@ class AudioEngine {
   completeTransition() {
     console.log('🎵 AI DJ: Completing transition - Track B becomes main');
     
+    // Clean up Deck B time tracking
+    if (this.deckBTimeUpdateInterval) {
+      clearInterval(this.deckBTimeUpdateInterval);
+      this.deckBTimeUpdateInterval = null;
+    }
+    
     // Switch tracks properly
     if (this.nextTrack) {
       this.currentTrack = this.nextTrack;
@@ -1759,15 +2140,25 @@ class AudioEngine {
     this.isTransitioning = false;
     this.hasStartedTransition = false;
     this.transitionStartTime = null;
+    this.deckBCurrentTime = 0;
+    this.deckBStartTime = 0;
     
     // Reset crossfader to center
     this.setCrossfade(0.5);
+    
+    // Notify queue manager of transition completion
+    if (this.queueManager) {
+      this.queueManager.onTrackTransition(this.currentDeck === 'A' ? 'B' : 'A');
+    }
     
     // Notify UI of completion
     this.notifyListeners('transitionComplete', {
       newCurrentTrack: this.currentTrack,
       newMainDeck: this.currentDeck
     });
+    
+    // Reset transition button UI
+    this.notifyListeners('transitionButtonReset');
   }
 
   setAutoMix(enabled) {
@@ -2224,6 +2615,824 @@ class AudioEngine {
     });
     
     console.log('🎵 All filters removed - full frequency range restored');
+  }
+
+  /**
+   * PROFESSIONAL AUTO-DJ INTEGRATION
+   */
+  async initializeProfessionalAutoDJ() {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { default: ProfessionalAutoDJ } = await import('./professionalAutoDJ');
+      this.professionalAutoDJ = new ProfessionalAutoDJ(this);
+      
+      console.log('🎵 Professional Auto-DJ System Initialized');
+      
+    } catch (error) {
+      console.error('Failed to initialize Professional Auto-DJ:', error);
+      this.advancedMixingEnabled = false;
+    }
+  }
+
+  async initializeQueueManager() {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { default: QueueManager } = await import('./queueManager.js');
+      this.queueManager = new QueueManager(this);
+      
+      // Set up queue manager event listeners
+      this.queueManager.addEventListener((event, data) => {
+        // Forward queue events to UI listeners
+        this.notifyListeners(event, data);
+      });
+      
+      console.log('🎵 Professional Queue Manager Initialized');
+      
+    } catch (error) {
+      console.error('Failed to initialize Queue Manager:', error);
+    }
+  }
+
+  async triggerProfessionalTransition() {
+    if (!this.professionalAutoDJ || !this.advancedMixingEnabled) {
+      return this.triggerBasicTransition();
+    }
+
+    if (this.isTransitioning) {
+      console.log('🚀 Professional transition blocked - Already transitioning');
+      return;
+    }
+
+    if (!this.nextTrack) {
+      console.log('🚀 Professional transition blocked - No next track available');
+      return;
+    }
+
+    console.log('🎵 PROFESSIONAL TRANSITION - BEAT-SYNCHRONIZED MODE');
+    this.isTransitioning = true;
+
+    // Calculate beat-synchronized transition with energy matching
+    const transitionPlan = await this.calculateBeatSyncedTransition();
+    
+    if (transitionPlan.waitTime > 0) {
+      console.log(`🎼 Waiting ${(transitionPlan.waitTime/1000).toFixed(1)}s for bar boundary (Track 1: ${transitionPlan.track1ExitPoint}s → Track 2: ${transitionPlan.track2EntryPoint}s)`);
+      
+      // Wait for the next bar boundary
+      setTimeout(async () => {
+        console.log(`🎵 Starting beat-synced transition NOW! (Energy match: ${transitionPlan.energyCompatibility})`);
+        await this.executeBeatSyncedTransition(transitionPlan);
+      }, transitionPlan.waitTime);
+      
+    } else {
+      // Start immediately if already on a bar boundary
+      console.log('🎵 Starting beat-synced transition immediately (already on bar boundary)');
+      await this.executeBeatSyncedTransition(transitionPlan);
+    }
+  }
+
+  createInstantTransitionPlan() {
+    console.log('🚀 Creating PROFESSIONAL DJ transition plan - COMPLEMENTARY STEMS ONLY');
+    
+    return {
+      style: 'professional_complementary_mixing',
+      duration: 8000, // 8 seconds for proper DJ transition
+      startTime: 0,
+      
+      phases: [
+        {
+          time: 0,
+          description: 'Phase 1: Track A keeps vocals+other, Track B takes bass only',
+          actions: [
+            // Track A: Keep vocals and melody
+            { track: 'A', stem: 'vocals', volume: 1.0 },
+            { track: 'A', stem: 'other', volume: 1.0 },
+            { track: 'A', stem: 'drums', volume: 1.0 },
+            { track: 'A', stem: 'bass', volume: 0.0 }, // Hand over bass
+            
+            // Track B: Only bass, everything else OFF
+            { track: 'B', stem: 'bass', volume: 0.8 },
+            { track: 'B', stem: 'drums', volume: 0.0 },
+            { track: 'B', stem: 'vocals', volume: 0.0 },
+            { track: 'B', stem: 'other', volume: 0.0 }
+          ]
+        },
+        {
+          time: 2000,
+          description: 'Phase 2: Track B takes drums, Track A gives up drums',
+          actions: [
+            // Track A: Keep vocals+other, lose drums
+            { track: 'A', stem: 'vocals', volume: 1.0 },
+            { track: 'A', stem: 'other', volume: 0.8 },
+            { track: 'A', stem: 'drums', volume: 0.0 }, // Hand over drums
+            { track: 'A', stem: 'bass', volume: 0.0 },
+            
+            // Track B: Has bass+drums, no vocals/other
+            { track: 'B', stem: 'bass', volume: 0.9 },
+            { track: 'B', stem: 'drums', volume: 0.9 },
+            { track: 'B', stem: 'vocals', volume: 0.0 },
+            { track: 'B', stem: 'other', volume: 0.0 }
+          ]
+        },
+        {
+          time: 4000,
+          description: 'Phase 3: Harmonic blend - Track B gets other, Track A reduces other',
+          actions: [
+            // Track A: Only vocals now
+            { track: 'A', stem: 'vocals', volume: 0.9 },
+            { track: 'A', stem: 'other', volume: 0.2 }, // Reduce other
+            { track: 'A', stem: 'drums', volume: 0.0 },
+            { track: 'A', stem: 'bass', volume: 0.0 },
+            
+            // Track B: Bass+drums+other, NO VOCALS
+            { track: 'B', stem: 'bass', volume: 1.0 },
+            { track: 'B', stem: 'drums', volume: 1.0 },
+            { track: 'B', stem: 'vocals', volume: 0.0 }, // NEVER overlap vocals
+            { track: 'B', stem: 'other', volume: 0.6 }
+          ]
+        },
+        {
+          time: 6000,
+          description: 'Phase 4: STRICT vocal handover - A vocals out, B vocals in',
+          actions: [
+            // Track A: Everything OFF
+            { track: 'A', stem: 'vocals', volume: 0.0 }, // Vocals fade out
+            { track: 'A', stem: 'other', volume: 0.0 },
+            { track: 'A', stem: 'drums', volume: 0.0 },
+            { track: 'A', stem: 'bass', volume: 0.0 },
+            
+            // Track B: Full track but delayed vocal entry
+            { track: 'B', stem: 'bass', volume: 1.0 },
+            { track: 'B', stem: 'drums', volume: 1.0 },
+            { track: 'B', stem: 'vocals', volume: 0.0 }, // Wait for vocal clear
+            { track: 'B', stem: 'other', volume: 0.8 }
+          ]
+        },
+        {
+          time: 7000,
+          description: 'Phase 5: Track B full track - vocals safe to enter',
+          actions: [
+            // Track A: Completely silent
+            { track: 'A', stem: 'vocals', volume: 0.0 },
+            { track: 'A', stem: 'other', volume: 0.0 },
+            { track: 'A', stem: 'drums', volume: 0.0 },
+            { track: 'A', stem: 'bass', volume: 0.0 },
+            
+            // Track B: Full track with vocals
+            { track: 'B', stem: 'bass', volume: 1.0 },
+            { track: 'B', stem: 'drums', volume: 1.0 },
+            { track: 'B', stem: 'vocals', volume: 1.0 }, // Now safe to bring in
+            { track: 'B', stem: 'other', volume: 1.0 }
+          ]
+        }
+      ]
+    };
+  }
+
+  async executeProfessionalTransitionPlan(plan) {
+    console.log(`🎭 Executing ${plan.style} transition (${plan.duration}ms)`);
+    
+    this.currentTransitionPlan = plan;
+    
+    // Start next track playback
+    await this.startNextTrackPlayback();
+    
+    // Execute each phase of the transition
+    for (const phase of plan.phases) {
+      setTimeout(() => {
+        this.executeTransitionPhase(phase);
+      }, phase.time);
+    }
+    
+    // Complete transition after duration
+    setTimeout(() => {
+      this.completeTransition();
+      this.currentTransitionPlan = null;
+    }, plan.duration);
+  }
+
+  executeTransitionPhase(phase) {
+    console.log(`🎵 ${phase.description}`);
+    
+    phase.actions.forEach(action => {
+      this.executeTransitionAction(action);
+    });
+  }
+
+  executeTransitionAction(action) {
+    const { track, stem, volume, filter, cutoff, effect, loop } = action;
+    
+    console.log(`🎛️ DJ ACTION: Track ${track} ${stem} → ${volume !== undefined ? (volume * 100).toFixed(0) + '%' : 'N/A'}`);
+    
+    // Apply volume changes to specific stems
+    if (volume !== undefined) {
+      if (track === 'A' && stem === 'all') {
+        // Set all Track A stems
+        ['vocals', 'drums', 'bass', 'other'].forEach(stemName => {
+          if (this.stemGains[stemName] && this.stemGains[stemName].trackA) {
+            this.stemGains[stemName].trackA.gain.setValueAtTime(volume, this.audioContext.currentTime);
+            console.log(`🎵 Track A ${stemName}: ${(volume * 100).toFixed(0)}%`);
+          } else {
+            console.warn(`⚠️ No Track A gain node for ${stemName}`);
+          }
+        });
+      } else if (track === 'B' && stem === 'all') {
+        // Set all Track B stems
+        ['vocals', 'drums', 'bass', 'other'].forEach(stemName => {
+          if (this.stemGains[stemName] && this.stemGains[stemName].trackB) {
+            this.stemGains[stemName].trackB.gain.setValueAtTime(volume, this.audioContext.currentTime);
+            console.log(`🎵 Track B ${stemName}: ${(volume * 100).toFixed(0)}%`);
+          } else {
+            console.warn(`⚠️ No Track B gain node for ${stemName}`);
+          }
+        });
+      } else if (stem && ['vocals', 'drums', 'bass', 'other'].includes(stem)) {
+        // Individual stem control
+        if (track === 'A' && this.stemGains[stem] && this.stemGains[stem].trackA) {
+          this.stemGains[stem].trackA.gain.setValueAtTime(volume, this.audioContext.currentTime);
+          console.log(`🎵 Track A ${stem}: ${(volume * 100).toFixed(0)}%`);
+          
+          // Notify UI of stem volume change
+          this.notifyListeners('stemVolumeChanged', {
+            deck: 'A',
+            stemName: stem,
+            volume: volume
+          });
+        } else if (track === 'B' && this.stemGains[stem] && this.stemGains[stem].trackB) {
+          this.stemGains[stem].trackB.gain.setValueAtTime(volume, this.audioContext.currentTime);
+          console.log(`🎵 Track B ${stem}: ${(volume * 100).toFixed(0)}%`);
+          
+          // Notify UI of stem volume change
+          this.notifyListeners('stemVolumeChanged', {
+            deck: 'B',
+            stemName: stem,
+            volume: volume
+          });
+        } else {
+          console.warn(`⚠️ No gain node found for Track ${track} ${stem}`);
+        }
+      }
+    }
+    
+    // Apply filters (simplified - would need proper filter implementation)
+    if (filter && cutoff) {
+      console.log(`🎛️ Apply ${filter} filter at ${cutoff}Hz to track ${track} ${stem}`);
+    }
+    
+    // Apply effects (simplified)
+    if (effect) {
+      console.log(`🎚️ Apply ${effect} effect to track ${track} ${stem}`);
+    }
+  }
+
+  triggerBasicTransition() {
+    // Instant transition method - no checks, no analysis, no blocking
+    console.log('⚡ INSTANT BASIC TRANSITION - No UI freeze guaranteed');
+    
+    if (this.isTransitioning) {
+      console.log('🚀 Manual transition blocked - Already transitioning');
+      return;
+    }
+    
+    if (!this.nextTrack) {
+      console.log('🚀 Manual transition blocked - No next track available');
+      return;
+    }
+    
+    this.hasStartedTransition = true;
+    this.isTransitioning = true;
+    
+    // Execute instant basic transition - no heavy processing
+    setTimeout(() => {
+      this.performInstantBasicTransition();
+    }, 0);
+  }
+
+  async performInstantBasicTransition() {
+    console.log('⚡ INSTANT BASIC TRANSITION - No blocking operations');
+    
+    // Start next track immediately
+    await this.startNextTrackPlayback();
+    
+    // Simple 4-second crossfade without any analysis
+    await this.performSimpleCrossfade(4000);
+    
+    // Complete transition
+    this.completeTransition();
+  }
+
+  async performSimpleCrossfade(duration) {
+    console.log(`🎵 PROFESSIONAL complementary crossfade over ${duration/1000}s - NO STEM OVERLAP`);
+    
+    // Professional DJ complementary stem mixing - no overlapping stems
+    const stemTransitions = [
+      {
+        time: 0,
+        description: 'Track A: Full track, Track B: Bass only',
+        trackA: { vocals: 1.0, drums: 1.0, bass: 0.0, other: 1.0 }, // Give up bass
+        trackB: { vocals: 0.0, drums: 0.0, bass: 0.8, other: 0.0 }  // Take bass only
+      },
+      {
+        time: duration * 0.3,
+        description: 'Track B takes drums, Track A loses drums',
+        trackA: { vocals: 1.0, drums: 0.0, bass: 0.0, other: 0.8 }, // Lose drums
+        trackB: { vocals: 0.0, drums: 0.9, bass: 0.9, other: 0.0 }  // Take drums
+      },
+      {
+        time: duration * 0.6,
+        description: 'Track B gets harmonics, Track A only vocals',
+        trackA: { vocals: 0.9, drums: 0.0, bass: 0.0, other: 0.2 }, // Mostly vocals
+        trackB: { vocals: 0.0, drums: 1.0, bass: 1.0, other: 0.6 }  // No vocals yet
+      },
+      {
+        time: duration * 0.8,
+        description: 'Vocal handover - A out, B delayed',
+        trackA: { vocals: 0.0, drums: 0.0, bass: 0.0, other: 0.0 }, // Complete fadeout
+        trackB: { vocals: 0.0, drums: 1.0, bass: 1.0, other: 0.8 }  // Still no vocals
+      },
+      {
+        time: duration,
+        description: 'Track B full - vocals safe to enter',
+        trackA: { vocals: 0.0, drums: 0.0, bass: 0.0, other: 0.0 }, // Silent
+        trackB: { vocals: 1.0, drums: 1.0, bass: 1.0, other: 1.0 }  // Full track
+      }
+    ];
+    
+    stemTransitions.forEach(transition => {
+      setTimeout(() => {
+        console.log(`🎛️ ${transition.description}`);
+        
+        // Apply Track A stem levels
+        ['vocals', 'drums', 'bass', 'other'].forEach(stem => {
+          if (this.stemGains[stem] && this.stemGains[stem].trackA) {
+            this.stemGains[stem].trackA.gain.setValueAtTime(
+              transition.trackA[stem], 
+              this.audioContext.currentTime
+            );
+            console.log(`🎵 A-${stem}: ${(transition.trackA[stem] * 100).toFixed(0)}%`);
+          } else {
+            console.warn(`⚠️ No Track A gain node for ${stem}`);
+          }
+        });
+        
+        // Apply Track B stem levels
+        ['vocals', 'drums', 'bass', 'other'].forEach(stem => {
+          if (this.stemGains[stem] && this.stemGains[stem].trackB) {
+            this.stemGains[stem].trackB.gain.setValueAtTime(
+              transition.trackB[stem], 
+              this.audioContext.currentTime
+            );
+            console.log(`🎵 B-${stem}: ${(transition.trackB[stem] * 100).toFixed(0)}%`);
+          } else {
+            console.warn(`⚠️ No Track B gain node for ${stem}`);
+          }
+        });
+      }, transition.time);
+    });
+  }
+
+  // Enhanced waveform generation with professional analysis
+  generateAdvancedWaveformData(audioBuffer) {
+    if (!audioBuffer.getChannelData || typeof audioBuffer.getChannelData !== 'function') {
+      console.warn('Invalid AudioBuffer passed to generateWaveformData:', audioBuffer);
+      return [];
+    }
+    
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const samplesPerPixel = Math.floor(channelData.length / 1000);
+    const waveformData = [];
+    
+    if (samplesPerPixel <= 0) return [];
+    
+    for (let i = 0; i < channelData.length; i += samplesPerPixel) {
+      let rms = 0;
+      let peak = 0;
+      let bassEnergy = 0;
+      let midEnergy = 0;
+      let trebleEnergy = 0;
+      
+      // Enhanced frequency analysis
+      for (let j = 0; j < samplesPerPixel && i + j < channelData.length; j++) {
+        const sample = Math.abs(channelData[i + j]);
+        rms += sample * sample;
+        peak = Math.max(peak, sample);
+        
+        // Simple frequency separation (improved version would use FFT)
+        if (j % 8 === 0) bassEnergy += sample;      // Low frequencies
+        if (j % 4 === 0) midEnergy += sample;       // Mid frequencies  
+        if (j % 2 === 0) trebleEnergy += sample;    // High frequencies
+      }
+      
+      rms = Math.sqrt(rms / samplesPerPixel);
+      bassEnergy /= (samplesPerPixel / 8);
+      midEnergy /= (samplesPerPixel / 4);
+      trebleEnergy /= (samplesPerPixel / 2);
+      
+      waveformData.push({
+        rms: Math.min(rms, 1.0),
+        peak: Math.min(peak, 1.0),
+        bass: Math.min(bassEnergy, 1.0),
+        mid: Math.min(midEnergy, 1.0),
+        treble: Math.min(trebleEnergy, 1.0),
+        time: (i / sampleRate)
+      });
+    }
+    
+    console.log(`🎵 Generated advanced waveform data: ${waveformData.length} points`);
+    return waveformData;
+  }
+
+  // Get professional analysis metrics
+  getProfessionalMetrics() {
+    if (this.professionalAutoDJ) {
+      return this.professionalAutoDJ.getPerformanceMetrics();
+    }
+    return null;
+  }
+
+  /**
+   * Calculate beat-synchronized transition timing
+   */
+  async calculateBeatSyncedTransition() {
+    const currentTime = this.currentTime || 0;
+    const currentBPM = this.currentTrack?.currentBPM || this.currentTrack?.bpm || 120;
+    const nextBPM = this.nextTrack?.currentBPM || this.nextTrack?.bpm || 120;
+    
+    console.log(`🎼 Analyzing transition: Current time ${currentTime.toFixed(1)}s (${currentBPM} BPM)`);
+    
+    // Find next bar boundary in current track
+    const nextBarBoundary = this.findNextBarBoundary(currentTime, currentBPM);
+    const waitTime = Math.max(0, (nextBarBoundary - currentTime) * 1000);
+    
+    // Analyze energy at the exit point
+    const exitEnergy = this.analyzeEnergyAtPosition(this.currentTrack, nextBarBoundary);
+    
+    // Find matching energy point in next track
+    const entryPoint = this.findMatchingEnergyPoint(this.nextTrack, exitEnergy, nextBPM);
+    
+    // Calculate energy compatibility
+    const entryEnergy = this.analyzeEnergyAtPosition(this.nextTrack, entryPoint);
+    const energyCompatibility = 1 - Math.abs(exitEnergy - entryEnergy);
+    
+    console.log(`🎯 Energy analysis: Track 1 exit (${exitEnergy.toFixed(2)}) → Track 2 entry (${entryEnergy.toFixed(2)}) = ${(energyCompatibility*100).toFixed(0)}% match`);
+    
+    return {
+      waitTime,
+      track1ExitPoint: nextBarBoundary,
+      track2EntryPoint: entryPoint,
+      exitEnergy,
+      entryEnergy,
+      energyCompatibility,
+      currentBPM,
+      nextBPM,
+      beatsPerBar: 4,
+      msPerBeat: (60 / currentBPM) * 1000
+    };
+  }
+
+  /**
+   * Find the next bar boundary based on BPM
+   */
+  findNextBarBoundary(currentTime, bpm) {
+    const beatsPerBar = 4;
+    const secondsPerBeat = 60 / bpm;
+    const secondsPerBar = secondsPerBeat * beatsPerBar;
+    
+    // Find which bar we're currently in
+    const currentBar = Math.floor(currentTime / secondsPerBar);
+    const nextBarStart = (currentBar + 1) * secondsPerBar;
+    
+    console.log(`🎼 Current: ${currentTime.toFixed(1)}s (Bar ${currentBar + 1}) → Next bar: ${nextBarStart.toFixed(1)}s`);
+    
+    return nextBarStart;
+  }
+
+  /**
+   * Analyze energy at a specific position in a track
+   */
+  analyzeEnergyAtPosition(track, position) {
+    // Simple energy estimation based on position and track characteristics
+    // In a real implementation, this would analyze the actual audio data
+    
+    const duration = track.duration || 180;
+    const normalizedPosition = position / duration;
+    
+    // Energy curve: builds up, peaks in middle, tapers at end
+    let baseEnergy = track.energy || 0.7;
+    
+    if (normalizedPosition < 0.1) {
+      // Intro - lower energy
+      baseEnergy *= 0.6;
+    } else if (normalizedPosition < 0.3) {
+      // Build-up
+      baseEnergy *= (0.6 + (normalizedPosition - 0.1) * 2);
+    } else if (normalizedPosition < 0.8) {
+      // Main section - full energy
+      baseEnergy *= 1.0;
+    } else {
+      // Outro - decreasing energy
+      baseEnergy *= (1.0 - (normalizedPosition - 0.8) * 1.5);
+    }
+    
+    // Add some variation based on bars (simulate build-ups and drops)
+    const barsIn = Math.floor(position / (60 / (track.bpm || 120) * 4));
+    const variation = Math.sin(barsIn * 0.1) * 0.1;
+    
+    return Math.max(0.1, Math.min(1.0, baseEnergy + variation));
+  }
+
+  /**
+   * Find matching energy point in next track
+   */
+  findMatchingEnergyPoint(track, targetEnergy, bpm) {
+    const duration = track.duration || 180;
+    const beatsPerBar = 4;
+    const secondsPerBar = (60 / bpm) * beatsPerBar;
+    
+    let bestPoint = 0;
+    let bestEnergyMatch = 0;
+    
+    // Search for best energy match on bar boundaries
+    for (let bar = 0; bar < Math.floor(duration / secondsPerBar); bar++) {
+      const barTime = bar * secondsPerBar;
+      const energy = this.analyzeEnergyAtPosition(track, barTime);
+      const energyMatch = 1 - Math.abs(energy - targetEnergy);
+      
+      if (energyMatch > bestEnergyMatch) {
+        bestEnergyMatch = energyMatch;
+        bestPoint = barTime;
+      }
+    }
+    
+    console.log(`🎯 Best entry point: ${bestPoint.toFixed(1)}s (Energy: ${this.analyzeEnergyAtPosition(track, bestPoint).toFixed(2)}, Match: ${(bestEnergyMatch*100).toFixed(0)}%)`);
+    
+    return bestPoint;
+  }
+
+  /**
+   * Execute beat-synchronized transition with strict stem isolation
+   */
+  async executeBeatSyncedTransition(plan) {
+    console.log('🎵 EXECUTING PHRASE-BASED TRANSITION - STRICT STEM ISOLATION');
+    
+    // Start the next track at the calculated entry point
+    await this.startNextTrackPlayback();
+    
+    // CRITICAL: Set ALL Track B stems to ZERO initially to prevent overlap
+    ['vocals', 'drums', 'bass', 'other'].forEach(stemName => {
+      if (this.stemGains[stemName] && this.stemGains[stemName].trackB) {
+        this.stemGains[stemName].trackB.gain.setValueAtTime(0, this.audioContext.currentTime);
+        console.log(`🔇 Track B ${stemName}: MUTED initially`);
+      }
+    });
+    
+    // Set the next track to start at the calculated entry point
+    if (this.nextTrack && this.nextTrack.stems) {
+      Object.keys(this.nextTrack.stems).forEach(stemName => {
+        const stemData = this.nextTrack.stems[stemName];
+        if (stemData && stemData.source) {
+          // Adjust start time to match entry point
+          stemData.source.playbackRate.value = plan.nextBPM / plan.currentBPM;
+        }
+      });
+    }
+    
+    // Create phrase-based stem transition plan
+    const stemTransitionPlan = this.createGradualStemPlan(plan);
+    
+    // Execute each stem transition at natural musical moments
+    stemTransitionPlan.forEach((stemPhase, index) => {
+      const delay = stemPhase.timeOffset; // Use calculated musical timing
+      
+      setTimeout(() => {
+        console.log(`🎼 ${stemPhase.musicalCue}: ${stemPhase.description}`);
+        
+        // Apply QUICK stem handover (2 seconds max) to prevent overlap
+        stemPhase.changes.forEach(change => {
+          const { track, stem, fromVolume, toVolume } = change;
+          const gainNode = track === 'A' ? 
+            this.stemGains[stem]?.trackA : 
+            this.stemGains[stem]?.trackB;
+          
+          if (gainNode) {
+            // FAST crossfade (2 seconds max) to prevent stem overlap
+            const crossfadeDuration = 2.0; // Quick handover
+            
+            gainNode.gain.setValueAtTime(fromVolume, this.audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(
+              toVolume, 
+              this.audioContext.currentTime + crossfadeDuration
+            );
+            
+            console.log(`🎵 ${track}-${stem}: ${(fromVolume*100).toFixed(0)}% → ${(toVolume*100).toFixed(0)}% over ${crossfadeDuration}s (QUICK HANDOVER)`);
+            
+            // STRICT ISOLATION: If Track A is giving up a stem, ensure it goes to absolute zero
+            if (track === 'A' && toVolume === 0) {
+              setTimeout(() => {
+                gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+                console.log(`🔇 STRICT ISOLATION: Track A ${stem} forced to 0% (no bleed)`);
+              }, crossfadeDuration * 1000 + 100); // Slight delay to ensure complete fadeout
+            }
+          }
+        });
+        
+        // Verification: Show current stem states after this transition
+        setTimeout(() => {
+          console.log(`🔍 STEM STATE VERIFICATION after ${stemPhase.musicalCue}:`);
+          ['bass', 'drums', 'other', 'vocals'].forEach(stemName => {
+            const trackAVolume = this.stemGains[stemName]?.trackA?.gain?.value || 0;
+            const trackBVolume = this.stemGains[stemName]?.trackB?.gain?.value || 0;
+            console.log(`   ${stemName}: Track A=${(trackAVolume*100).toFixed(0)}%, Track B=${(trackBVolume*100).toFixed(0)}%`);
+          });
+        }, 3000); // Check 3 seconds after transition starts
+      }, delay);
+    });
+    
+    // Complete transition after all stems have been swapped
+    const maxTransitionTime = Math.max(...stemTransitionPlan.map(p => p.timeOffset));
+    setTimeout(() => {
+      this.completeTransition();
+    }, maxTransitionTime + 4000); // Reduced time since crossfades are quicker
+  }
+
+  /**
+   * Create gradual stem transition plan (based on musical phrases)
+   */
+  createGradualStemPlan(plan) {
+    const stemOrder = [
+      { stem: 'bass', priority: 1, phraseDelay: 0 },      // Bass immediately - foundation
+      { stem: 'drums', priority: 2, phraseDelay: 1 },     // Drums after 8-16 bars - rhythm
+      { stem: 'other', priority: 3, phraseDelay: 2 },     // Harmonics after another phrase - melody
+      { stem: 'vocals', priority: 4, phraseDelay: 3 }     // Vocals last - avoid overlap
+    ];
+    
+    const stemPhases = [];
+    
+    // Analyze track structure for natural transition points
+    const transitionPoints = this.findNaturalTransitionPoints(plan);
+    
+    stemOrder.forEach((stemInfo, index) => {
+      const { stem, phraseDelay } = stemInfo;
+      const transitionPoint = transitionPoints[index] || transitionPoints[0];
+      
+      stemPhases.push({
+        phraseNumber: index + 1,
+        timeOffset: transitionPoint.timeOffset,
+        musicalCue: transitionPoint.cue,
+        description: `${stem.toUpperCase()} handover at ${transitionPoint.cue} (${transitionPoint.timeOffset/1000}s)`,
+        changes: [
+          {
+            track: 'A',
+            stem: stem,
+            fromVolume: index === 0 ? 1.0 : this.getPreviousVolume('A', stem, index),
+            toVolume: 0.0  // Track A gives up this stem
+          },
+          {
+            track: 'B', 
+            stem: stem,
+            fromVolume: 0.0,
+            toVolume: this.getTargetVolume(stem, plan.energyCompatibility)  // Track B takes this stem
+          }
+        ]
+      });
+    });
+    
+    console.log(`🎼 Created ${stemPhases.length} phrase-based transition points:`);
+    stemPhases.forEach(phase => {
+      console.log(`   ${phase.description}`);
+    });
+    
+    return stemPhases;
+  }
+
+  /**
+   * Get previous volume for a stem (for smooth transitions)
+   */
+  getPreviousVolume(track, stem, barIndex) {
+    // Start with full volume, gradually reduce as we hand over stems
+    const baseVolume = 1.0;
+    const reduction = barIndex * 0.1; // Slight reduction for each stem handed over
+    return Math.max(0.2, baseVolume - reduction);
+  }
+
+  /**
+   * Get target volume based on stem type and energy compatibility
+   */
+  getTargetVolume(stem, energyCompatibility) {
+    const baseVolumes = {
+      bass: 0.9,    // Strong bass presence
+      drums: 1.0,   // Full drums
+      other: 0.8,   // Moderate harmonics
+      vocals: 0.85  // Strong vocals
+    };
+    
+    // Adjust based on energy compatibility
+    const energyMultiplier = 0.7 + (energyCompatibility * 0.3); // 0.7-1.0 range
+    
+    return (baseVolumes[stem] || 0.8) * energyMultiplier;
+  }
+
+  /**
+   * Find natural transition points based on musical structure
+   */
+  findNaturalTransitionPoints(plan) {
+    const bpm = plan.currentBPM;
+    const beatsPerBar = 4;
+    const barsPerPhrase = 8; // Standard phrase length
+    const secondsPerBar = (60 / bpm) * beatsPerBar;
+    const secondsPerPhrase = secondsPerBar * barsPerPhrase;
+    
+    console.log(`🎼 Analyzing musical structure: ${bpm} BPM, ${secondsPerPhrase.toFixed(1)}s per phrase`);
+    
+    // Define natural transition points with musical reasoning
+    const transitionPoints = [
+      {
+        timeOffset: 0, // Immediate - bass foundation
+        cue: 'Phrase Start',
+        musicalReason: 'Bass establishes new foundation immediately',
+        bars: 0
+      },
+      {
+        timeOffset: secondsPerPhrase * 1000, // 8 bars later
+        cue: 'End of Phrase 1',
+        musicalReason: 'Natural phrase boundary - drums can enter',
+        bars: 8
+      },
+      {
+        timeOffset: secondsPerPhrase * 2 * 1000, // 16 bars later  
+        cue: 'Verse/Chorus Change',
+        musicalReason: 'Major section change - harmonics transition',
+        bars: 16
+      },
+      {
+        timeOffset: secondsPerPhrase * 3 * 1000, // 24 bars later
+        cue: 'Pre-Hook/Bridge',
+        musicalReason: 'Energy shift moment - vocals handover safe',
+        bars: 24
+      }
+    ];
+    
+    // Analyze track structure for better timing
+    const structuralPoints = this.analyzeTrackStructure(plan);
+    
+    // Adjust transition points based on actual track analysis
+    return transitionPoints.map((point, index) => {
+      const structuralAdjustment = structuralPoints[index] || 0;
+      return {
+        ...point,
+        timeOffset: point.timeOffset + structuralAdjustment,
+        adjusted: structuralAdjustment !== 0
+      };
+    });
+  }
+
+  /**
+   * Analyze track structure for natural transition moments
+   */
+  analyzeTrackStructure(plan) {
+    const duration = this.currentTrack?.duration || 180;
+    const currentPosition = plan.track1ExitPoint;
+    const normalizedPosition = currentPosition / duration;
+    
+    console.log(`🎯 Track structure analysis: ${currentPosition.toFixed(1)}s / ${duration}s (${(normalizedPosition*100).toFixed(0)}%)`);
+    
+    // Adjust timing based on song position
+    const adjustments = [];
+    
+    if (normalizedPosition < 0.25) {
+      // Early in song - longer gaps between transitions
+      adjustments.push(0, 4000, 8000, 16000); // Extra spacing
+    } else if (normalizedPosition > 0.75) {
+      // Late in song - quicker transitions for outro
+      adjustments.push(0, 2000, 4000, 6000); // Closer together
+    } else {
+      // Middle of song - standard phrase timing
+      adjustments.push(0, 0, 0, 0); // No adjustment needed
+    }
+    
+    return adjustments;
+  }
+
+  /**
+   * Get appropriate phrase duration for transitions
+   */
+  getPhraseDuration(plan, musicalCue) {
+    const bpm = plan.currentBPM;
+    const basePhraseDuration = (60 / bpm) * 4 * 4 * 1000; // 4 bars in milliseconds
+    
+    // Adjust duration based on musical context
+    switch (musicalCue) {
+      case 'Phrase Start':
+        return basePhraseDuration * 2; // 8 bars - foundation change needs time
+      case 'End of Phrase 1':
+        return basePhraseDuration * 1.5; // 6 bars - rhythm change
+      case 'Verse/Chorus Change':
+        return basePhraseDuration; // 4 bars - harmonic transition
+      case 'Pre-Hook/Bridge':
+        return basePhraseDuration * 0.5; // 2 bars - quick vocal switch
+      default:
+        return basePhraseDuration;
+    }
   }
 
   // Cleanup

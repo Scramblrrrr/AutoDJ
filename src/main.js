@@ -1,8 +1,10 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
 const { spawn } = require('child_process');
 const fs = require('fs');
+
+// Simple dev check without external dependency
+const isDev = !app.isPackaged;
 
 let mainWindow;
 
@@ -17,14 +19,16 @@ function createWindow() {
       contextIsolation: false,
       enableRemoteModule: true
     },
-    icon: path.join(__dirname, '../Assets/AI DJ - Logo.png'),
+    icon: isDev 
+      ? path.join(__dirname, '../Assets/AI DJ - Logo.png')
+      : path.join(__dirname, './Assets/AI DJ - Logo.png'),
     titleBarStyle: 'default'
   });
 
   mainWindow.loadURL(
     isDev 
       ? 'http://localhost:3000' 
-      : `file://${path.join(__dirname, '../build/index.html')}`
+      : `file://${path.join(__dirname, './index.html')}`
   );
 
   if (isDev) {
@@ -101,7 +105,9 @@ ipcMain.handle('load-audio-file', async (event, filePath) => {
 // Add a simple test handler first
 ipcMain.handle('test-python', async (event) => {
   return new Promise((resolve, reject) => {
-    const testScriptPath = path.join(__dirname, '../python/test_simple.py');
+    const testScriptPath = isDev 
+      ? path.join(__dirname, '../python/test_simple.py')
+      : path.join(process.resourcesPath, 'python/test_simple.py');
     console.log('Testing Python with simple script:', testScriptPath);
     
     const pythonProcess = spawn('py', ['-3', '-u', testScriptPath], {
@@ -142,7 +148,9 @@ ipcMain.handle('test-python', async (event) => {
 
 ipcMain.handle('process-stems', async (event, filePath, outputDir) => {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(__dirname, '../python/stem_processor_demucs_simple.py');
+    const scriptPath = isDev 
+      ? path.join(__dirname, '../python/stem_processor_demucs_simple.py')
+      : path.join(process.resourcesPath, 'python/stem_processor_demucs_simple.py');
     
     console.log('Attempting to start Python script:', scriptPath);
     console.log('File path:', filePath);
@@ -293,8 +301,12 @@ ipcMain.handle('process-stems', async (event, filePath, outputDir) => {
 
 ipcMain.handle('download-audio', async (event, url, outputDir) => {
   return new Promise((resolve, reject) => {
+    const downloaderPath = isDev 
+      ? path.join(__dirname, '../python/downloader.py')
+      : path.join(process.resourcesPath, 'python/downloader.py');
+    
     const pythonProcess = spawn('python', [
-      path.join(__dirname, '../python/downloader.py'),
+      downloaderPath,
       url,
       outputDir
     ]);

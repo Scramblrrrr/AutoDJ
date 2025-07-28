@@ -1,0 +1,36 @@
+graph TD
+    A["User Clicks Transition Quick!"] --> B["Button Shows Spinner"]
+    B --> C["Trigger Professional Transition"]
+    
+    C --> D["setTimeout 0ms - Non-blocking execution"]
+    D --> E["Professional Analysis Steps"]
+    
+    E --> F1["Step 1: BPM Analysis"]
+    F1 --> F2["Step 2: Key Detection"] 
+    F2 --> F3["Step 3: Structure Analysis"]
+    F3 --> F4["Step 4: Vocal Analysis"]
+    F4 --> F5["Step 5: Energy Analysis"]
+    
+    F5 --> G["Execute Transition"]
+    G --> H["Audio Crossfade"]
+    H --> I["Button Returns to Normal"]
+    I --> J["✅ No UI Freeze!"]
+    
+    subgraph "Problem Fixed"
+        K["❌ BEFORE: Synchronous analysis blocked UI"]
+        L["✅ AFTER: setTimeout yields control to UI thread"]
+        K --> L
+    end
+    
+    subgraph "User Experience"
+        M["Immediate visual feedback"]
+        N["UI remains responsive"]
+        O["Professional audio analysis"]
+        P["Smooth transitions"]
+        M --> N --> O --> P
+    end
+    
+    style A fill:#4CAF50
+    style J fill:#8BC34A
+    style L fill:#00BCD4
+    style K fill:#F44336

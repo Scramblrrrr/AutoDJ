@@ -197,27 +197,50 @@ function ProfessionalBeatViewport({
   const [zoom, setZoom] = useState(1.0); // 1.0 = normal, 2.0 = 2x zoom
   const [viewportTime, setViewportTime] = useState(20); // seconds visible in viewport
   
-  // Real-time animation frame for smooth scrolling
+  // Optimized rendering - only update when data changes or time advances significantly
   useEffect(() => {
     let animationFrame;
+    let lastUpdateTime = 0;
+    const FRAME_RATE = 1000 / 30; // 30 FPS instead of 60
     
-    const updateViewports = () => {
-      drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTime);
-      drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBCurrentTime);
-      drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTime);
-      drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBCurrentTime);
+    const updateViewports = (timestamp) => {
+      if (timestamp - lastUpdateTime >= FRAME_RATE) {
+        drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTime);
+        drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBCurrentTime);
+        drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTime);
+        drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBCurrentTime);
+        lastUpdateTime = timestamp;
+      }
       
       animationFrame = requestAnimationFrame(updateViewports);
     };
     
-    updateViewports();
+    // Only start animation if we have track data
+    if (deckATrack || deckBTrack) {
+      animationFrame = requestAnimationFrame(updateViewports);
+    }
     
     return () => {
       if (animationFrame) {
         cancelAnimationFrame(animationFrame);
       }
     };
-  }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid, currentTime, deckBCurrentTime, zoom, viewportTime]);
+  }, [deckATrack, deckBTrack, deckAWaveform, deckBWaveform, deckABeatGrid, deckBBeatGrid]);
+  
+  // Separate effect for time updates to avoid constant re-rendering
+  useEffect(() => {
+    if (deckATrack && deckAWaveformRef.current) {
+      drawDeckWaveform('A', deckATrack, deckAWaveform, deckAWaveformRef.current, currentTime);
+      drawDeckBeatGrid('A', deckABeatGrid, deckABeatGridRef.current, currentTime);
+    }
+  }, [currentTime]);
+  
+  useEffect(() => {
+    if (deckBTrack && deckBWaveformRef.current) {
+      drawDeckWaveform('B', deckBTrack, deckBWaveform, deckBWaveformRef.current, deckBCurrentTime);
+      drawDeckBeatGrid('B', deckBBeatGrid, deckBBeatGridRef.current, deckBCurrentTime);
+    }
+  }, [deckBCurrentTime]);
   
   const drawDeckWaveform = (deck, track, waveformData, canvas, playTime) => {
     if (!canvas || !waveformData.length || !track) return;
@@ -240,35 +263,57 @@ function ProfessionalBeatViewport({
     const windowStart = Math.max(0, playTime - viewportTime / 2);
     const windowEnd = windowStart + viewportTime;
     
-    // Draw frequency-colored waveform (Serato style)
-    const samplesPerPixel = (waveformData.length * viewportTime) / (track.duration * canvasWidth);
+    // Professional Serato-style frequency-colored waveform
+    const samplesPerPixel = Math.max(1, Math.floor(waveformData.length / canvasWidth));
     const startSample = Math.floor((windowStart / track.duration) * waveformData.length);
-    const endSample = Math.floor((windowEnd / track.duration) * waveformData.length);
+    const endSample = Math.min(waveformData.length, Math.floor((windowEnd / track.duration) * waveformData.length));
     
+    // Draw stereo waveform with frequency separation
     for (let x = 0; x < canvasWidth; x++) {
       const sampleIndex = startSample + Math.floor((x / canvasWidth) * (endSample - startSample));
       if (sampleIndex >= 0 && sampleIndex < waveformData.length) {
         const sample = waveformData[sampleIndex];
+        const centerY = canvasHeight / 2;
         
-        // Frequency analysis for coloring (simplified)
-        const bass = sample.rms * 0.4; // Low frequencies
-        const mid = sample.rms * 0.4;  // Mid frequencies  
-        const treble = sample.peak * 0.2; // High frequencies
+        // Enhanced frequency analysis
+        const bass = Math.min(sample.rms * 0.8, 1.0);     // Low frequencies (green)
+        const mid = Math.min(sample.rms * 0.6, 1.0);      // Mid frequencies (orange/yellow)
+        const treble = Math.min(sample.peak * 0.4, 1.0);  // High frequencies (red)
         
-        // Draw bass (blue/green)
-        ctx.fillStyle = `rgba(0, 150, 100, ${bass * 2})`;
-        const bassHeight = bass * canvasHeight * 0.6;
-        ctx.fillRect(x, canvasHeight - bassHeight, 1, bassHeight);
+        // Calculate heights based on frequency content
+        const bassHeight = bass * canvasHeight * 0.4;
+        const midHeight = mid * canvasHeight * 0.3;
+        const trebleHeight = treble * canvasHeight * 0.2;
         
-        // Draw mids (yellow)
-        ctx.fillStyle = `rgba(200, 200, 0, ${mid * 1.5})`;
-        const midHeight = mid * canvasHeight * 0.4;
-        ctx.fillRect(x, (canvasHeight - midHeight) / 2, 1, midHeight);
+        // Serato-style colors with transparency
+        const deckColor = deck === 'A' ? [0, 255, 136] : [255, 255, 0];
         
-        // Draw treble (red/purple)
-        ctx.fillStyle = `rgba(200, 100, 200, ${treble * 3})`;
-        const trebleHeight = treble * canvasHeight * 0.3;
-        ctx.fillRect(x, (canvasHeight - trebleHeight) / 2, 1, trebleHeight);
+        // Draw bass (bottom - green tones)
+        if (bassHeight > 1) {
+          ctx.fillStyle = `rgba(${Math.floor(deckColor[0] * 0.6)}, ${Math.floor(deckColor[1] * 0.8)}, ${Math.floor(deckColor[2] * 0.3)}, ${bass * 0.9})`;
+          ctx.fillRect(x, centerY, 2, bassHeight);
+          ctx.fillRect(x, centerY - bassHeight, 2, bassHeight);
+        }
+        
+        // Draw mids (middle - orange/yellow tones)
+        if (midHeight > 1) {
+          ctx.fillStyle = `rgba(${Math.floor(deckColor[0] * 0.8)}, ${Math.floor(deckColor[1] * 0.9)}, ${Math.floor(deckColor[2] * 0.1)}, ${mid * 0.8})`;
+          ctx.fillRect(x, centerY, 1, midHeight);
+          ctx.fillRect(x, centerY - midHeight, 1, midHeight);
+        }
+        
+        // Draw treble (top - bright colors)
+        if (trebleHeight > 1) {
+          ctx.fillStyle = `rgba(${deckColor[0]}, ${Math.floor(deckColor[1] * 0.7)}, ${deckColor[2]}, ${treble * 0.7})`;
+          ctx.fillRect(x, centerY, 1, trebleHeight);
+          ctx.fillRect(x, centerY - trebleHeight, 1, trebleHeight);
+        }
+        
+        // Add peak indicators for transients
+        if (sample.peak > 0.7) {
+          ctx.fillStyle = `rgba(255, 255, 255, ${(sample.peak - 0.7) * 3})`;
+          ctx.fillRect(x, centerY - 2, 1, 4);
+        }
       }
     }
     

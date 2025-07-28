@@ -2,11 +2,12 @@
   "name": "autodj",
   "version": "1.0.0",
   "description": "AI-powered desktop DJ application with automatic music mixing",
+  "author": "AutoDJ Team",
   "main": "src/main.js",
   "homepage": "./",
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "react-scripts build && copy src\\main.js build\\electron.js",
     "electron": "electron .",
     "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron-pack": "electron-builder",
@@ -14,7 +15,6 @@
     "install-python-deps": "pip install demucs torch torchaudio yt-dlp librosa numpy scipy"
   },
   "dependencies": {
-    "electron": "^27.0.0",
     "howler": "^2.2.4",
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "concurrently": "^7.6.0",
+    "electron": "^27.0.0",
     "electron-builder": "^24.6.4",
     "electron-is-dev": "^2.0.0",
     "wait-on": "^7.0.1"
@@ -38,8 +39,13 @@
     },
     "files": [
       "build/**/*",
-      "src/main.js",
       "python/**/*"
+    ],
+    "extraFiles": [
+      {
+        "from": "python",
+        "to": "Resources/python"
+      }
     ],
     "mac": {
       "category": "public.app-category.music"
@@ -64,3 +70,4 @@
     ]
   }
 }
+ 
