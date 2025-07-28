@@ -75,10 +75,23 @@ node scripts/package.js all    # All platforms
 
 ## Generated Packages
 
+### File Locations
+AutoDJ keeps music organized under `~/Music/AutoDJ/Library`:
+
+- **Downloads**: raw downloads from YouTube or SoundCloud are stored in `Library/Downloads`
+- **Processed**: copies of tracks that have been processed live in `Library/Processed`
+- **Stems**: extracted stems are saved in `Library/Stems`
+- **Temp**: temporary working files are placed in `Temp`
+
+Original files are never deleted automatically.
+
+## Configuration
+
 ### Windows
 - `AutoDJ Setup.exe` - NSIS installer with shortcuts
 - `AutoDJ.exe` - Portable executable
 - `AutoDJ-win32-x64.zip` - Zipped application
+
 
 ### macOS
 - `AutoDJ.dmg` - Disk image installer
