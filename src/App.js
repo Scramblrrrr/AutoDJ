@@ -7,11 +7,13 @@ import UploadProcess from './components/UploadProcess';
 import MusicDownloader from './components/MusicDownloader';
 import CustomTitleBar from './components/CustomTitleBar';
 import FirstTimeSetup from './components/FirstTimeSetup';
+import optimizedAudioProcessor from './utils/optimizedAudioProcessor';
 
 const AppContainer = styled.div`
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  width: 100vw;
   background: linear-gradient(135deg, 
     #000000 0%, 
     #3d3d3d 25%, 
@@ -20,12 +22,14 @@ const AppContainer = styled.div`
     #000000 100%);
   color: #ffffff;
   border-radius: 12px;
+  overflow: hidden;
 `;
 
 const ContentContainer = styled.div`
   display: flex;
   flex: 1;
-  min-height: calc(100vh - 40px); /* Account for title bar */
+  height: calc(100vh - 40px); /* Account for title bar */
+  overflow: hidden;
 `;
 
 const Sidebar = styled.div`
@@ -88,12 +92,13 @@ const NavItem = styled.div`
 const MainContent = styled.div`
   flex: 1;
   overflow-y: auto;
-  max-height: calc(100vh - 40px); /* Account for title bar */
+  overflow-x: hidden;
+  height: calc(100vh - 40px); /* Account for title bar */
 `;
 
 const tabs = [
   { id: 'dashboard', name: 'Dashboard', icon: Home, component: Dashboard },
-  { id: 'aidj', name: 'AI|DJ', icon: Music, component: AIDJ },
+  { id: 'aidj', name: 'AI|DJ (beta)', icon: Music, component: AIDJ },
   { id: 'upload', name: 'Upload & Process', icon: Upload, component: UploadProcess },
   { id: 'downloader', name: 'Music Downloader', icon: Download, component: MusicDownloader }
 ];
@@ -106,6 +111,12 @@ function App() {
   const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
 
   useEffect(() => {
+    // Initialize global audio processor
+    if (typeof window !== 'undefined') {
+      window.optimizedAudioProcessor = optimizedAudioProcessor;
+      console.log('🎵 Global optimizedAudioProcessor initialized');
+    }
+    
     checkSetupStatus();
   }, []);
 

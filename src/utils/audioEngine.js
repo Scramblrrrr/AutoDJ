@@ -2895,26 +2895,251 @@ class AudioEngine {
       return;
     }
 
-    console.log('🎵 PROFESSIONAL TRANSITION - BEAT-SYNCHRONIZED MODE');
+    console.log('🎵 PROFESSIONAL TRANSITION - REFINED MECHANICS MODE');
     this.isTransitioning = true;
 
-    // Calculate beat-synchronized transition with energy matching
-    const transitionPlan = await this.calculateBeatSyncedTransition();
-    
-    if (transitionPlan.waitTime > 0) {
-      console.log(`🎼 Waiting ${(transitionPlan.waitTime/1000).toFixed(1)}s for bar boundary (Track 1: ${transitionPlan.track1ExitPoint}s → Track 2: ${transitionPlan.track2EntryPoint}s)`);
+    try {
+      // Use refined transition system for better volume control and stem management
+      const refinedPlan = await this.professionalAutoDJ.executeRefinedTransition(this.currentTrack, this.nextTrack);
       
-      // Wait for the next bar boundary
-      setTimeout(async () => {
-        console.log(`🎵 Starting beat-synced transition NOW! (Energy match: ${transitionPlan.energyCompatibility})`);
-        await this.executeBeatSyncedTransition(transitionPlan);
-      }, transitionPlan.waitTime);
-      
-    } else {
-      // Start immediately if already on a bar boundary
-      console.log('🎵 Starting beat-synced transition immediately (already on bar boundary)');
-      await this.executeBeatSyncedTransition(transitionPlan);
+      if (refinedPlan) {
+        console.log(`🎭 Executing refined transition: ${refinedPlan.style} (${refinedPlan.duration}ms)`);
+        await this.executeRefinedTransitionPlan(refinedPlan);
+      } else {
+        // Fallback to beat-synchronized transition
+        console.log('🔄 Falling back to beat-synchronized transition');
+        const transitionPlan = await this.calculateBeatSyncedTransition();
+        
+        if (transitionPlan.waitTime > 0) {
+          console.log(`🎼 Waiting ${(transitionPlan.waitTime/1000).toFixed(1)}s for bar boundary`);
+          
+          setTimeout(async () => {
+            console.log(`🎵 Starting beat-synced transition NOW!`);
+            await this.executeBeatSyncedTransition(transitionPlan);
+          }, transitionPlan.waitTime);
+          
+        } else {
+          console.log('🎵 Starting beat-synced transition immediately');
+          await this.executeBeatSyncedTransition(transitionPlan);
+        }
+      }
+    } catch (error) {
+      console.error('Refined transition failed, using basic fallback:', error);
+      this.isTransitioning = false;
+      await this.triggerBasicTransition();
     }
+  }
+
+  /**
+   * EXECUTE REFINED TRANSITION PLAN
+   * Implements the new refined transition mechanics with better volume curves and stem management
+   */
+  async executeRefinedTransitionPlan(plan) {
+    console.log(`🎵 EXECUTING REFINED TRANSITION: ${plan.style}`);
+    
+    if (!plan.phases || plan.phases.length === 0) {
+      console.warn('No phases in transition plan, aborting');
+      this.isTransitioning = false;
+      return;
+    }
+
+    // Start next track playback
+    await this.startNextTrackPlayback();
+    
+    // Execute each phase with proper timing
+    plan.phases.forEach((phase, index) => {
+      const delay = phase.time;
+      
+      setTimeout(() => {
+        console.log(`🎛️ Phase ${index + 1}: ${phase.description}`);
+        this.executeRefinedTransitionPhase(phase);
+      }, delay);
+    });
+
+    // Complete transition after all phases
+    const totalDuration = plan.duration;
+    setTimeout(() => {
+      this.completeRefinedTransition();
+    }, totalDuration);
+  }
+
+  /**
+   * EXECUTE REFINED TRANSITION PHASE
+   * Handles individual phase execution with improved volume curves
+   */
+  executeRefinedTransitionPhase(phase) {
+    if (!phase.actions || phase.actions.length === 0) {
+      console.warn('No actions in phase, skipping');
+      return;
+    }
+
+    phase.actions.forEach(action => {
+      this.executeRefinedTransitionAction(action);
+    });
+  }
+
+  /**
+   * EXECUTE REFINED TRANSITION ACTION
+   * Implements smooth volume curves and frequency filtering
+   */
+  executeRefinedTransitionAction(action) {
+    const { track, stem, volume, curve = 'linear', filter } = action;
+    
+    // Get the appropriate gain node
+    let gainNode = null;
+    if (stem === 'all') {
+      gainNode = track === 'A' ? this.trackAGain : this.trackBGain;
+    } else {
+      gainNode = this.stemGains[stem]?.[track === 'A' ? 'trackA' : 'trackB'];
+    }
+
+    if (!gainNode) {
+      console.warn(`No gain node found for ${track}-${stem}`);
+      return;
+    }
+
+    // Apply frequency filtering if specified
+    if (filter && filter !== 'none') {
+      this.applyRefinedFilter(gainNode, filter);
+    }
+
+    // Apply volume with appropriate curve
+    this.applyRefinedVolumeCurve(gainNode, volume, curve);
+    
+    console.log(`🎵 ${track}-${stem}: ${(volume * 100).toFixed(0)}% (${curve})`);
+  }
+
+  /**
+   * APPLY REFINED VOLUME CURVE
+   * Implements smooth volume transitions with different curve types
+   */
+  applyRefinedVolumeCurve(gainNode, targetVolume, curveType) {
+    const currentVolume = gainNode.gain.value;
+    const transitionDuration = 1.0; // 1 second for smooth transitions
+    const startTime = this.audioContext.currentTime;
+    const endTime = startTime + transitionDuration;
+
+    // Ensure minimum volume to avoid exponentialRampToValueAtTime errors
+    const minVolume = 0.001; // Minimum safe volume for exponential ramping
+    const safeTargetVolume = Math.max(targetVolume, minVolume);
+    const safeCurrentVolume = Math.max(currentVolume, minVolume);
+
+    // Set current volume as starting point
+    gainNode.gain.setValueAtTime(safeCurrentVolume, startTime);
+
+    switch (curveType) {
+      case 'ease-in':
+        // Smooth acceleration
+        gainNode.gain.exponentialRampToValueAtTime(safeTargetVolume, endTime);
+        break;
+        
+      case 'ease-out':
+        // Smooth deceleration
+        gainNode.gain.exponentialRampToValueAtTime(safeTargetVolume, endTime);
+        break;
+        
+      case 'ease-in-out':
+        // Smooth acceleration and deceleration
+        const midTime = startTime + transitionDuration * 0.5;
+        const midVolume = Math.max(targetVolume * 0.7, minVolume);
+        gainNode.gain.exponentialRampToValueAtTime(midVolume, midTime);
+        gainNode.gain.exponentialRampToValueAtTime(safeTargetVolume, endTime);
+        break;
+        
+      case 'linear':
+      default:
+        // Linear transition - can handle 0 values safely
+        gainNode.gain.linearRampToValueAtTime(targetVolume, endTime);
+        break;
+    }
+  }
+
+  /**
+   * APPLY REFINED FILTER
+   * Implements frequency filtering for better stem separation
+   */
+  applyRefinedFilter(gainNode, filterConfig) {
+    const { type, cutoff, low, high } = filterConfig;
+    
+    // Create filter node if it doesn't exist
+    if (!gainNode.filter) {
+      gainNode.filter = this.audioContext.createBiquadFilter();
+      gainNode.filter.connect(gainNode);
+    }
+
+    const filter = gainNode.filter;
+    
+    switch (type) {
+      case 'lowpass':
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(cutoff, this.audioContext.currentTime);
+        break;
+        
+      case 'highpass':
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(cutoff, this.audioContext.currentTime);
+        break;
+        
+      case 'bandpass':
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime((low + high) / 2, this.audioContext.currentTime);
+        filter.Q.setValueAtTime(2.0, this.audioContext.currentTime);
+        break;
+        
+      case 'none':
+        // Remove filter by setting to bypass
+        filter.type = 'allpass';
+        break;
+    }
+  }
+
+  /**
+   * COMPLETE REFINED TRANSITION
+   * Finalizes the refined transition
+   */
+  completeRefinedTransition() {
+    console.log('🎵 Refined transition complete');
+    
+    // Switch tracks properly
+    if (this.nextTrack) {
+      this.currentTrack = this.nextTrack;
+      this.duration = this.nextTrack.duration;
+      this.currentTime = 0;
+      this.currentDeck = this.nextTrack.deck || 'B';
+      
+      // Audio routing - Track B content becomes Track A audio path
+      this.trackAGain.gain.value = 1.0;
+      this.trackBGain.gain.value = 0.0;
+      
+      console.log(`🎵 ${this.currentTrack.title} is now the main track`);
+    }
+    
+    // Reset transition state
+    this.nextTrack = null;
+    this.nextTrackStemGains = null;
+    this.nextTrackPitchRatio = 1.0;
+    this.isTransitioning = false;
+    this.hasStartedTransition = false;
+    this.transitionStartTime = null;
+    this.deckBCurrentTime = 0;
+    this.deckBStartTime = 0;
+    
+    // Reset crossfader to center
+    this.setCrossfade(0.5);
+    
+    // Notify queue manager of transition completion
+    if (this.queueManager) {
+      this.queueManager.onTrackTransition(this.currentDeck === 'A' ? 'B' : 'A');
+    }
+    
+    // Notify UI of completion
+    this.notifyListeners('transitionComplete', {
+      newCurrentTrack: this.currentTrack,
+      newMainDeck: this.currentDeck
+    });
+    
+    // Reset transition button UI
+    this.notifyListeners('transitionButtonReset');
   }
 
   createInstantTransitionPlan() {

@@ -13,13 +13,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: transparent;
   color: #ffffff;
-  overflow-x: hidden; /* Only hide horizontal overflow */
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
+  width: 100vw;
   background: transparent;
   border-radius: 12px;
+  overflow: hidden;
 }
 
 code {
@@ -43,6 +47,42 @@ code {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #ff5757;
+}
+
+/* Ensure proper viewport handling */
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Prevent double scrollbars */
+* {
+  box-sizing: border-box;
+}
+
+/* Ensure components take full available height */
+.component-container {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* Fix for Electron apps to prevent double scrollbars */
+body {
+  -webkit-app-region: no-drag;
+}
+
+/* Ensure proper height calculations */
+#root > div {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Debug class for viewport issues */
+.viewport-debug {
+  border: 2px solid red;
+  background: rgba(255, 0, 0, 0.1);
 }
 
 /* Custom button styles */

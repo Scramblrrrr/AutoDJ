@@ -505,70 +505,110 @@ class AutoDJEngine {
     }
 
     /**
-     * Find optimal entry point in next track based on energy matching
-     * Matches the energy/musical intensity of the transition point
+     * Find optimal entry point - first beat with vocals from beatgrid analysis
      */
     findOptimalEntryPoint(analysis, transitionPoint) {
-        console.log(`🎵 Finding optimal entry point for ${analysis.file || 'next track'}`);
+        console.log(`🎵 Finding first vocal beat for ${analysis.file || 'next track'}`);
         
-        const targetEnergyLevel = this.estimateEnergyLevel(transitionPoint);
-        console.log(`🔋 Target energy level: ${targetEnergyLevel}`);
+        // PRIORITY 1: Find first beat with vocals using beatgrid + vocal analysis
+        const firstVocalBeat = this.findFirstVocalBeat(analysis);
+        if (firstVocalBeat !== null) {
+            console.log(`🎯 Found first vocal beat: ${firstVocalBeat.toFixed(1)}s`);
+            return {
+                time: firstVocalBeat,
+                description: 'First vocal beat',
+                energyLevel: 'vocal',
+                reason: 'Precise vocal entry from beatgrid analysis'
+            };
+        }
+
+        // PRIORITY 2: Find first beat in a vocal section
+        const firstVocalSection = this.findFirstVocalSection(analysis);
+        if (firstVocalSection !== null) {
+            console.log(`🎯 Found first vocal section: ${firstVocalSection.toFixed(1)}s`);
+            return {
+                time: firstVocalSection,
+                description: 'First vocal section',
+                energyLevel: 'vocal',
+                reason: 'First identified vocal section'
+            };
+        }
+
+        // PRIORITY 3: Estimate vocal entry based on typical song structure
+        const estimatedVocalEntry = this.estimateVocalEntry(analysis);
+        console.log(`🎯 Estimated vocal entry: ${estimatedVocalEntry.toFixed(1)}s`);
         
-        // Potential entry points with their characteristics
-        const entryPoints = [
-            // Traditional intro (low energy start)
-            {
-                time: analysis.cue_in || 0,
-                description: 'Track intro',
-                energyLevel: 'low',
-                score: targetEnergyLevel === 'low' ? 10 : 3,
-                reason: 'Natural track beginning'
-            },
-            
-            // First vocal entry (medium energy)
-            {
-                time: this.findFirstVocalEntry(analysis),
-                description: 'First vocal entry',
-                energyLevel: 'medium',
-                score: targetEnergyLevel === 'medium' ? 10 : 6,
-                reason: 'Vocal establishes energy'
-            },
-            
-            // First chorus/hook (high energy)
-            {
-                time: this.findFirstChorus(analysis),
-                description: 'First chorus/hook',
-                energyLevel: 'high',
-                score: targetEnergyLevel === 'high' ? 10 : 4,
-                reason: 'High energy section maintains momentum'
-            },
-            
-            // Breakdown/bridge section (variable energy)
-            {
-                time: this.findBreakdownSection(analysis),
-                description: 'Breakdown section',
-                energyLevel: 'variable',
-                score: 7,
-                reason: 'Dynamic section allows energy adjustment'
-            }
-        ];
-        
-        // Filter out invalid times and sort by score
-        const validEntries = entryPoints
-            .filter(entry => entry.time >= 0 && entry.time < (analysis.duration || 300))
-            .sort((a, b) => b.score - a.score);
-        
-        const chosen = validEntries[0] || {
-            time: analysis.cue_in || 0,
-            description: 'Track beginning (fallback)',
-            energyLevel: 'low',
-            score: 1,
-            reason: 'Default entry point'
+        return {
+            time: estimatedVocalEntry,
+            description: 'Estimated vocal entry',
+            energyLevel: 'estimated',
+            reason: 'Estimated based on song structure analysis'
         };
+    }
+
+    /**
+     * Find the exact first beat that contains vocals using beatgrid
+     */
+    findFirstVocalBeat(analysis) {
+        // Use beatgrid and vocal data if available
+        if (analysis.beatgrid && analysis.vocals && Array.isArray(analysis.vocals)) {
+            const beatgrid = analysis.beatgrid;
+            const vocals = analysis.vocals;
+            
+            // Find the earliest vocal section
+            const earliestVocal = vocals.reduce((earliest, vocal) => {
+                const vocalStart = vocal.start || vocal.time || 0;
+                return vocalStart < (earliest?.start || earliest?.time || Infinity) ? vocal : earliest;
+            }, null);
+            
+            if (earliestVocal) {
+                const vocalStartTime = earliestVocal.start || earliestVocal.time;
+                
+                // Find the first beat at or after the vocal start time
+                const firstVocalBeat = beatgrid.find(beat => beat >= vocalStartTime);
+                if (firstVocalBeat !== undefined) {
+                    return firstVocalBeat;
+                }
+            }
+        }
         
-        console.log(`🎯 Optimal entry point: ${chosen.time.toFixed(1)}s (${chosen.description}) - ${chosen.reason}`);
+        return null;
+    }
+
+    /**
+     * Find first vocal section from analysis data
+     */
+    findFirstVocalSection(analysis) {
+        if (analysis.vocals && Array.isArray(analysis.vocals) && analysis.vocals.length > 0) {
+            const firstVocal = analysis.vocals[0];
+            return firstVocal.start || firstVocal.time || null;
+        }
+        return null;
+    }
+
+    /**
+     * Estimate vocal entry based on typical song structure and BPM
+     */
+    estimateVocalEntry(analysis) {
+        const duration = analysis.duration || 180;
+        const bpm = analysis.bpm || 120;
+        const secondsPerBar = (60 / bpm) * 4;
         
-        return chosen;
+        // Most songs: vocals start after 8-16 bars (intro)
+        // Find the beat closest to 15% of the song or after 8 bars, whichever comes first
+        const eightBars = secondsPerBar * 8;
+        const fifteenPercent = duration * 0.15;
+        const estimatedStart = Math.min(eightBars, fifteenPercent);
+        
+        // If we have beatgrid, snap to the nearest beat
+        if (analysis.beatgrid && Array.isArray(analysis.beatgrid)) {
+            const nearestBeat = analysis.beatgrid.find(beat => beat >= estimatedStart);
+            if (nearestBeat !== undefined) {
+                return nearestBeat;
+            }
+        }
+        
+        return estimatedStart;
     }
 
     /**
@@ -1315,42 +1355,43 @@ class AutoDJEngine {
     }
 
     /**
-     * Execute standard overlapping crossfade (both tracks audible during transition)
+     * Execute quick cut transition (minimal overlap, sharp transition)
      */
     async executeStandardOverlapCrossfade(transitionPoint, entryPoint) {
-        console.log('🎵 Executing standard overlap crossfade - both tracks audible');
+        console.log('🎵 Executing quick cut transition - sharp transition');
         
-        // Adaptive crossfade duration based on energy levels
-        let crossfadeDuration = 8.0; // Default
+        // Much shorter cut times for professional DJ feel
+        let cutDuration = 0.5; // Default - very quick
         
         if (transitionPoint.type === 'phrase_boundary') {
-            crossfadeDuration = 4.0; // Shorter for phrase boundaries
+            cutDuration = 0.2; // Very sharp for phrase boundaries
         } else if (transitionPoint.type === 'section_boundary') {
-            crossfadeDuration = 2.0; // Very short for section changes
+            cutDuration = 0.1; // Almost instant for section changes
+        } else if (transitionPoint.type === 'energy_change') {
+            cutDuration = 0.3; // Quick for energy changes
         } else if (transitionPoint.type === 'emergency') {
-            crossfadeDuration = 1.0; // Very quick for emergency transitions
+            cutDuration = 0.05; // Instant for emergency
         }
         
         const audioContext = this.audioEngine.audioContext;
         const startTime = audioContext.currentTime;
         
-        console.log(`🎵 Crossfade: ${crossfadeDuration}s overlap with both tracks audible`);
+        console.log(`🎵 Quick cut: ${(cutDuration * 1000).toFixed(0)}ms transition`);
         
-        // Start Track A at full volume, Track B at zero
+        // Sharp cut instead of long fade
         if (this.audioEngine.trackAGain) {
             this.audioEngine.trackAGain.gain.setValueAtTime(1.0, startTime);
-            this.audioEngine.trackAGain.gain.linearRampToValueAtTime(0, startTime + crossfadeDuration);
-            console.log(`🎵 Track A: 100% -> 0% over ${crossfadeDuration}s`);
+            this.audioEngine.trackAGain.gain.linearRampToValueAtTime(0, startTime + cutDuration);
+            console.log(`🎵 Track A: CUT from 100% to 0% in ${(cutDuration * 1000).toFixed(0)}ms`);
         }
         
         if (this.audioEngine.trackBGain) {
             this.audioEngine.trackBGain.gain.setValueAtTime(0, startTime);
-            this.audioEngine.trackBGain.gain.linearRampToValueAtTime(1.0, startTime + crossfadeDuration);
-            console.log(`🎵 Track B: 0% -> 100% over ${crossfadeDuration}s`);
+            this.audioEngine.trackBGain.gain.linearRampToValueAtTime(1.0, startTime + cutDuration);
+            console.log(`🎵 Track B: CUT from 0% to 100% in ${(cutDuration * 1000).toFixed(0)}ms`);
         }
         
-        // Both tracks will be audible during the crossfade period
-        console.log(`🎵 Both tracks playing simultaneously for ${crossfadeDuration}s transition`);
+        console.log(`🎵 Sharp cut executed - minimal ${(cutDuration * 1000).toFixed(0)}ms overlap`);
     }
 
     /**
@@ -1369,21 +1410,21 @@ class AutoDJEngine {
         
         console.log(`🎵 Stem mixing: ${barsPerPhase} bars per phase (${phaseLength.toFixed(1)}s each)`);
         
-        // PHASE 1: Swap vocals and bass (immediate)
-        console.log('🎵 Phase 1: Swapping vocals and bass');
-        this.swapStems(['vocals', 'bass'], startTime, 2.0); // 2 second transition
+        // PHASE 1: Cut vocals and bass (immediate sharp cut)
+        console.log('🎵 Phase 1: CUTTING vocals and bass');
+        this.swapStems(['vocals', 'bass'], startTime, 0.1); // 100ms sharp cut
         
-        // PHASE 2: Swap other and drums (after 16 bars)
+        // PHASE 2: Cut other and drums (after 16 bars)
         setTimeout(() => {
-            console.log('🎵 Phase 2: Swapping other and drums');
-            this.swapStems(['other', 'drums'], audioContext.currentTime, 2.0);
+            console.log('🎵 Phase 2: CUTTING other and drums');
+            this.swapStems(['other', 'drums'], audioContext.currentTime, 0.1); // 100ms sharp cut
         }, phaseLength * 1000);
         
         console.log(`🎵 Professional stem mixing initiated - ${barsPerPhase * 2} bars total`);
     }
 
     /**
-     * Swap specific stems between tracks
+     * Swap specific stems between tracks with clean cuts
      */
     swapStems(stemTypes, startTime, transitionDuration) {
         stemTypes.forEach(stemType => {
@@ -1391,15 +1432,18 @@ class AutoDJEngine {
             const stemB = this.audioEngine.stemGains[stemType]?.trackB;
             
             if (stemA && stemB) {
-                // Fade out Track A stem
+                // Sharp cut instead of fade - more professional DJ style
+                const cutTime = startTime + 0.05; // 50ms for clean transition
+                
+                // Cut Track A stem
                 stemA.gain.setValueAtTime(stemA.gain.value, startTime);
-                stemA.gain.linearRampToValueAtTime(0, startTime + transitionDuration);
+                stemA.gain.linearRampToValueAtTime(0, cutTime);
                 
-                // Fade in Track B stem  
-                stemB.gain.setValueAtTime(stemB.gain.value, startTime);
-                stemB.gain.linearRampToValueAtTime(1.0, startTime + transitionDuration);
+                // Cut in Track B stem  
+                stemB.gain.setValueAtTime(0, startTime);
+                stemB.gain.linearRampToValueAtTime(1.0, cutTime);
                 
-                console.log(`🎵 Swapping ${stemType}: A->0%, B->100% over ${transitionDuration}s`);
+                console.log(`🎵 CUTTING ${stemType}: A->0%, B->100% (clean cut in 50ms)`);
             }
         });
     }

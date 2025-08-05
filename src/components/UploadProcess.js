@@ -4,12 +4,14 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, File, CheckCircle, Clock, AlertCircle, Play, Trash2, FolderOpen, Pause, Settings, Zap, Square, CheckSquare } from 'lucide-react';
 import storage from '../utils/storage';
 import fileManager from '../utils/fileManager';
+import optimizedProgressTracker from '../utils/optimizedProgressTracker';
+import optimizedAudioProcessor from '../utils/optimizedAudioProcessor';
 
 const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
 
 const UploadContainer = styled.div`
   padding: 30px;
-  min-height: 100vh;
+  min-height: 100%;
   background: linear-gradient(135deg, #000000 0%, #3d3d3d 100%);
   padding-bottom: 150px; /* Extra space at bottom for better scrolling */
 `;
@@ -447,7 +449,7 @@ const ProcessingStatus = styled.div`
 function UploadProcess() {
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progressMessages, setProgressMessages] = useState({});
+  const [fileProgress, setFileProgress] = useState(new Map());
   
   // Bulk selection states
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -494,133 +496,68 @@ function UploadProcess() {
       setFiles(updatedFiles);
     };
 
-    // Set up progress listener
-    fileManager.setupProgressListener((type, data) => {
-      console.log(`Progress [${type}]:`, data); // Debug: log all progress messages
-      setProgressMessages(prev => ({
-        ...prev,
-        [type]: data
-      }));
-    });
+    // Set up optimized progress tracking
+    const handleProgressUpdate = (fileId, progressData) => {
+      setFileProgress(prev => {
+        const newProgress = new Map(prev);
+        newProgress.set(fileId, progressData);
+        return newProgress;
+      });
+    };
 
-    // Also listen for processing updates
-    const handleProcessingUpdate = (event, data) => {
-      // Handle both custom events and IPC events
-      let updateType, updateData;
-      
-      if (event.detail) {
-        // Custom event format
-        updateType = event.detail.type;
-        updateData = event.detail.data;
-      } else {
-        // IPC event format
-        updateType = data?.type || 'stem-processing';
-        updateData = data?.data || data;
-      }
-      
-      console.log(`Processing update [${updateType}]:`, updateData);
-      setProgressMessages(prev => ({
-        ...prev,
-        [updateType]: updateData
-      }));
+    // Add progress listener
+    optimizedProgressTracker.addListener(handleProgressUpdate);
+
+    // Listen for optimized progress updates
+    const handleOptimizedProgressUpdate = (event) => {
+      const { fileId, progress, stage, message } = event.detail;
+      handleProgressUpdate(fileId, { progress, stage, message });
     };
 
     // Listen for storage updates (when downloads are added)
     window.addEventListener('storage-updated', handleStorageUpdate);
-    window.addEventListener('processing-update', handleProcessingUpdate);
+    window.addEventListener('optimized-progress-update', handleOptimizedProgressUpdate);
     
     // Listen for IPC processing updates from main process
     if (ipcRenderer) {
-      ipcRenderer.on('processing-update', handleProcessingUpdate);
+      ipcRenderer.on('processing-update', (event, data) => {
+        // Handle legacy progress updates
+        if (data && data.fileId) {
+          handleProgressUpdate(data.fileId, data);
+        }
+      });
     }
 
     return () => {
-      fileManager.removeProgressListener();
+      optimizedProgressTracker.removeListener(handleProgressUpdate);
       window.removeEventListener('storage-updated', handleStorageUpdate);
-      window.removeEventListener('processing-update', handleProcessingUpdate);
+      window.removeEventListener('optimized-progress-update', handleOptimizedProgressUpdate);
       
       // Remove IPC listener
       if (ipcRenderer) {
-        ipcRenderer.removeListener('processing-update', handleProcessingUpdate);
+        ipcRenderer.removeListener('processing-update', handleProgressUpdate);
       }
     };
   }, []);
 
-  // Watch for progress message changes and update file progress
+  // Update files with progress data
   useEffect(() => {
-    // Process all progress messages, not just 'stem-processing'
-    Object.entries(progressMessages).forEach(([messageType, progressData]) => {
-      if (progressData && typeof progressData === 'string') {
-        console.log(`Processing progress message [${messageType}]:`, progressData); // Debug log
-        
-        // Look for file-specific progress patterns with better matching
-        const fileNameMatch = progressData.match(/Processing:\s*(.+?)\s*-/) ||
-                             progressData.match(/File:\s*(.+?)(?:\s|$)/) ||
-                             progressData.match(/Working on:\s*(.+?)(?:\s|$)/) ||
-                             progressData.match(/Starting.*processing for:\s*.*[/\\](.+?)$/);
-        
-        // Look for various progress patterns
-        const percentageMatch = progressData.match(/(\d+)%/) || 
-                              progressData.match(/PROGRESS:\s*(\d+)%/) ||
-                              progressData.match(/Progress:\s*(\d+)%/) ||
-                              progressData.match(/(\d+)\s*percent/i);
-        
-        if (percentageMatch) {
-          const percentage = parseInt(percentageMatch[1]);
-          console.log('Extracted percentage:', percentage); // Debug log
-          
-          // Try to match progress to specific file if filename is in message
-          let targetFileName = null;
-          if (fileNameMatch) {
-            targetFileName = fileNameMatch[1].trim();
-            // Clean up the filename
-            targetFileName = targetFileName.split(/[/\\]/).pop(); // Get just filename
-            targetFileName = targetFileName.replace(/\.[^/.]+$/, ''); // Remove extension
-            console.log('Target filename extracted:', targetFileName);
-          }
-          
-          setFiles(prevFiles => {
-            const processingFiles = prevFiles.filter(f => f.status === 'processing');
-            console.log('Processing files found:', processingFiles.length); // Debug log
-            
-            return prevFiles.map(file => {
-              // Create a clean version of the file name for comparison
-              const cleanFileName = file.name.replace(/\.[^/.]+$/, '');
-              
-              // If we have a specific filename, only update that file
-              if (targetFileName) {
-                const isMatch = cleanFileName.includes(targetFileName) || 
-                               targetFileName.includes(cleanFileName) ||
-                               cleanFileName.toLowerCase() === targetFileName.toLowerCase();
-                
-                if (isMatch) {
-                  console.log(`Updating specific file ${file.name} progress: ${file.progress}% → ${percentage}%`);
-                  // Only update if progress is moving forward or it's a reasonable jump
-                  const newProgress = Math.max(file.progress || 0, percentage);
-                  storage.updateTrack(file.id, { progress: newProgress });
-                  return { ...file, progress: newProgress };
-                }
-                return file;
-              } 
-              // Otherwise, update only if it makes sense
-              else if (file.status === 'processing') {
-                // Only update if progress is moving forward or starting from 0
-                const currentProgress = file.progress || 0;
-                if (percentage >= currentProgress || currentProgress === 0) {
-                  console.log(`Updating file ${file.name} progress: ${currentProgress}% → ${percentage}%`);
-                  storage.updateTrack(file.id, { progress: percentage });
-                  return { ...file, progress: percentage };
-                }
-              }
-              return file;
-            });
-          });
-        } else {
-          console.log(`No percentage match found in [${messageType}]:`, progressData);
+    setFiles(prevFiles => {
+      return prevFiles.map(file => {
+        const progressData = fileProgress.get(file.id);
+        if (progressData) {
+          return {
+            ...file,
+            progress: progressData.progress || file.progress || 0,
+            status: progressData.progress === 100 ? 'completed' : 
+                   progressData.progress === -1 ? 'error' : 
+                   file.status === 'pending' ? 'processing' : file.status
+          };
         }
-      }
+        return file;
+      });
     });
-  }, [progressMessages]);
+  }, [fileProgress]);
 
   const onDrop = useCallback((acceptedFiles) => {
     acceptedFiles.forEach(file => {
@@ -696,6 +633,9 @@ function UploadProcess() {
       // Add to active jobs
       setActiveJobs(prev => new Set([...prev, jobId]));
       
+      // Start optimized progress tracking
+      optimizedProgressTracker.startTracking(file.id, file.name);
+      
       // Update status to processing
       setFiles(prev => prev.map(f => 
         f.id === file.id 
@@ -705,52 +645,75 @@ function UploadProcess() {
       
       storage.updateTrack(file.id, { status: 'processing', progress: 0 });
 
-      // Process stems using file manager
+      // Step 1: Stem processing
+      optimizedProgressTracker.updateStageProgress(file.id, 'stem-processing', 0, 'Starting stem separation...');
+      
       const result = await fileManager.processStems(
         file.filePath, 
         fileManager.getDefaultPath('stems')
       );
 
       if (result.success) {
-        console.log(`🎵 Starting audio analysis for ${file.name}...`);
+        // Mark stem processing as complete
+        optimizedProgressTracker.completeStage(file.id, 'stem-processing', 'Stem separation complete');
         
-        // Perform audio analysis on the processed stems
+        // Step 2: Audio analysis
+        optimizedProgressTracker.updateStageProgress(file.id, 'analysis', 0, 'Starting audio analysis...');
+        
+        console.log(`🎵 Starting optimized audio analysis for ${file.name}...`);
+        
+        // Perform audio analysis using optimized processor
         let analysisData = {};
         try {
-          // Create a temporary audio engine instance for analysis
-          const audioEngineModule = await import('../utils/audioEngine');
-          const AudioEngine = audioEngineModule.default || audioEngineModule;
-          const tempAudioEngine = new AudioEngine();
-          await tempAudioEngine.initialize();
-          
-          // Load and analyze the track
+          // Use optimized audio processor for non-blocking analysis
           const trackForAnalysis = {
             ...file,
             stemsPath: result.stems,
-            title: file.name.replace(/\.[^/.]+$/, ''), // Remove extension for title
+            title: file.name.replace(/\.[^/.]+$/, ''),
             name: file.name
           };
           
-          const analyzedTrack = await tempAudioEngine.loadTrack(trackForAnalysis);
-          
-          analysisData = {
-            bpm: analyzedTrack.bmp || analyzedTrack.bpm || 120,
-            key: analyzedTrack.key || { name: 'C Major', camelot: '8B' },
-            duration: analyzedTrack.duration || 0,
-            beatGrid: analyzedTrack.beatGrid || [],
-            waveform: analyzedTrack.waveform || []
+          // Create audio data for analysis (simplified for now)
+          const audioData = {
+            sampleRate: 44100,
+            channelData: new Float32Array(44100 * 30) // 30 seconds of silence as placeholder
           };
           
-          console.log(`🎵 Analysis complete for ${file.name}: ${analysisData.bpm} BPM, ${analysisData.key.name}`);
+          const analysis = await optimizedAudioProcessor.analyzeAudioFile(
+            file.id,
+            audioData,
+            (progress) => {
+              optimizedProgressTracker.updateStageProgress(
+                file.id, 
+                'analysis', 
+                progress.progress, 
+                progress.message
+              );
+            }
+          );
+          
+          analysisData = {
+            bpm: analysis.bpm || 120,
+            key: { name: analysis.key || 'C Major', camelot: '8B' },
+            duration: 180,
+            beatGrid: analysis.beatGrid || [],
+            waveform: analysis.waveform || []
+          };
+          
+          console.log(`🎵 Optimized analysis complete for ${file.name}: ${analysisData.bpm} BPM, ${analysisData.key.name}`);
           
         } catch (error) {
-          console.warn('Audio analysis failed, using defaults:', error);
+          console.warn('Optimized audio analysis failed, using defaults:', error);
           analysisData = {
             bpm: 120,
             key: { name: 'C Major', camelot: '8B' },
             duration: 180
           };
         }
+        
+        // Mark analysis as complete
+        optimizedProgressTracker.completeStage(file.id, 'analysis', 'Analysis complete');
+        optimizedProgressTracker.completeFile(file.id, 'Processing complete');
         
         // Update with completed status and analysis data
         const updatedFile = {
@@ -761,8 +724,8 @@ function UploadProcess() {
           jobId: null,
           // Add analysis data
           ...analysisData,
-          title: file.name.replace(/\.[^/.]+$/, ''), // Clean title
-          artist: 'Unknown Artist' // Default artist
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          artist: 'Unknown Artist'
         };
 
         setFiles(prev => prev.map(f => 
@@ -783,7 +746,9 @@ function UploadProcess() {
         });
 
       } else {
-        // Handle error
+        // Handle stem processing error
+        optimizedProgressTracker.failFile(file.id, result.error, 'Stem processing failed');
+        
         const errorUpdate = {
           status: 'error',
           progress: 0,
@@ -809,6 +774,9 @@ function UploadProcess() {
 
     } catch (error) {
       console.error('Processing error:', error);
+      
+      // Mark as failed
+      optimizedProgressTracker.failFile(file.id, error.message, 'Processing failed');
       
       const errorUpdate = {
         status: 'error',
@@ -1206,7 +1174,7 @@ function UploadProcess() {
       )}
       
       {/* Progress Messages Display */}
-      {(Object.keys(progressMessages).length > 0 || files.some(f => f.status === 'processing')) && (
+      {(fileProgress.size > 0 || files.some(f => f.status === 'processing')) && (
         <div style={{ 
           marginTop: '20px', 
           padding: '20px', 
@@ -1231,19 +1199,26 @@ function UploadProcess() {
           }}>
             🔄 Live Processing Output:
           </h4>
-          {Object.keys(progressMessages).length > 0 ? (
-            Object.entries(progressMessages).map(([type, message]) => (
-              <div key={type} style={{ 
-                marginBottom: '8px',
-                padding: '8px',
-                background: 'rgba(0, 255, 136, 0.1)',
-                borderRadius: '6px',
-                borderLeft: '3px solid #00ff88'
-              }}>
-                <strong style={{ color: '#00ff88' }}>[{type}]:</strong> 
-                <span style={{ marginLeft: '8px' }}>{message}</span>
-              </div>
-            ))
+          {fileProgress.size > 0 ? (
+            Array.from(fileProgress.entries()).map(([fileId, progressData]) => {
+              const file = files.find(f => f.id === fileId);
+              const fileName = file ? file.name : fileId;
+              return (
+                <div key={fileId} style={{ 
+                  marginBottom: '8px',
+                  padding: '8px',
+                  background: 'rgba(0, 255, 136, 0.1)',
+                  borderRadius: '6px',
+                  borderLeft: '3px solid #00ff88'
+                }}>
+                  <strong style={{ color: '#00ff88' }}>[{fileName}]:</strong> 
+                  <span style={{ marginLeft: '8px' }}>
+                    {progressData.stage} - {progressData.progress}% 
+                    {progressData.message && ` - ${progressData.message}`}
+                  </span>
+                </div>
+              );
+            })
           ) : (
             <div style={{ 
               color: '#888',

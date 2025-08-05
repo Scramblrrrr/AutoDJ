@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoDJ Optimizations Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .test-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #4CAF50;
+        }
+        .test-section.error {
+            border-left-color: #f44336;
+        }
+        .test-section.running {
+            border-left-color: #2196F3;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .log {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        .button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 AutoDJ Optimizations Test</h1>
+        
+        <div class="test-section" id="test1">
+            <h3>📊 Test 1: Progress Tracking</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress1"></div>
+            </div>
+            <div class="log" id="log1"></div>
+        </div>
+        
+        <div class="test-section" id="test2">
+            <h3>🎵 Test 2: Audio Processor</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress2"></div>
+            </div>
+            <div class="log" id="log2"></div>
+        </div>
+        
+        <div class="test-section" id="test3">
+            <h3>🚀 Test 3: Parallel Processing</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress3"></div>
+            </div>
+            <div class="log" id="log3"></div>
+        </div>
+        
+        <div class="test-section" id="test4">
+            <h3>📊 Test 4: Statistics</h3>
+            <div class="stats" id="stats"></div>
+            <div class="log" id="log4"></div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="button" onclick="runTests()" id="runButton">🚀 Run All Tests</button>
+            <button class="button" onclick="cleanupTests()" id="cleanupButton" disabled>🧹 Cleanup</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the test functions
+        import { testOptimizedProcessing, cleanupTestResources } from './src/utils/testOptimizations.js';
+        
+        // Global variables for test state
+        let testResults = {};
+        let isRunning = false;
+        
+        // DOM elements
+        const runButton = document.getElementById('runButton');
+        const cleanupButton = document.getElementById('cleanupButton');
+        
+        // Test section elements
+        const testSections = {
+            test1: document.getElementById('test1'),
+            test2: document.getElementById('test2'),
+            test3: document.getElementById('test3'),
+            test4: document.getElementById('test4')
+        };
+        
+        const progressBars = {
+            test1: document.getElementById('progress1'),
+            test2: document.getElementById('progress2'),
+            test3: document.getElementById('progress3'),
+            test4: document.getElementById('progress4')
+        };
+        
+        const logs = {
+            test1: document.getElementById('log1'),
+            test2: document.getElementById('log2'),
+            test3: document.getElementById('log3'),
+            test4: document.getElementById('log4')
+        };
+        
+        // Helper functions
+        function log(testId, message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logs[testId].textContent += `[${timestamp}] ${message}\n`;
+            logs[testId].scrollTop = logs[testId].scrollHeight;
+        }
+        
+        function updateProgress(testId, percentage) {
+            progressBars[testId].style.width = `${percentage}%`;
+        }
+        
+        function setTestStatus(testId, status) {
+            testSections[testId].className = `test-section ${status}`;
+        }
+        
+        function updateStats(stats) {
+            const statsContainer = document.getElementById('stats');
+            statsContainer.innerHTML = '';
+            
+            Object.entries(stats).forEach(([key, value]) => {
+                const statCard = document.createElement('div');
+                statCard.className = 'stat-card';
+                statCard.innerHTML = `
+                    <div class="stat-value">${value}</div>
+                    <div class="stat-label">${key}</div>
+                `;
+                statsContainer.appendChild(statCard);
+            });
+        }
+        
+        // Override console.log to capture test output
+        const originalConsoleLog = console.log;
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            
+            const message = args.join(' ');
+            if (message.includes('📊 Test 1:')) {
+                log('test1', message);
+            } else if (message.includes('🎵 Test 2:')) {
+                log('test2', message);
+            } else if (message.includes('🚀 Test 3:')) {
+                log('test3', message);
+            } else if (message.includes('📊 Test 4:')) {
+                log('test4', message);
+            } else if (message.includes('🎵 Audio analysis progress:')) {
+                log('test2', message);
+            } else if (message.includes('✅ All optimization tests completed')) {
+                log('test4', message);
+            } else if (message.includes('❌ Optimization test failed')) {
+                log('test4', message);
+            }
+        };
+        
+        // Main test runner
+        window.runTests = async function() {
+            if (isRunning) return;
+            
+            isRunning = true;
+            runButton.disabled = true;
+            cleanupButton.disabled = true;
+            
+            // Reset UI
+            Object.keys(testSections).forEach(testId => {
+                setTestStatus(testId, 'running');
+                updateProgress(testId, 0);
+                logs[testId].textContent = '';
+            });
+            
+            try {
+                log('test1', '🧪 Starting optimization tests...');
+                
+                // Run the tests
+                const result = await testOptimizedProcessing();
+                
+                if (result.success) {
+                    log('test4', '✅ All tests completed successfully!');
+                    setTestStatus('test1', '');
+                    setTestStatus('test2', '');
+                    setTestStatus('test3', '');
+                    setTestStatus('test4', '');
+                    
+                    // Update progress bars to 100%
+                    Object.keys(progressBars).forEach(testId => {
+                        updateProgress(testId, 100);
+                    });
+                    
+                    // Display results
+                    if (result.analysisResult) {
+                        log('test2', `🎵 Analysis Result: BPM=${result.analysisResult.bpm}, Key=${result.analysisResult.key}`);
+                    }
+                    
+                    if (result.parallelResults) {
+                        log('test3', `🚀 Parallel Results: ${result.parallelResults.length} files processed`);
+                    }
+                    
+                    if (result.stats) {
+                        updateStats(result.stats);
+                        log('test4', `📊 Statistics: ${JSON.stringify(result.stats, null, 2)}`);
+                    }
+                    
+                    testResults = result;
+                } else {
+                    log('test4', `❌ Tests failed: ${result.error}`);
+                    setTestStatus('test1', 'error');
+                    setTestStatus('test2', 'error');
+                    setTestStatus('test3', 'error');
+                    setTestStatus('test4', 'error');
+                }
+                
+            } catch (error) {
+                log('test4', `❌ Test execution error: ${error.message}`);
+                setTestStatus('test1', 'error');
+                setTestStatus('test2', 'error');
+                setTestStatus('test3', 'error');
+                setTestStatus('test4', 'error');
+            } finally {
+                isRunning = false;
+                runButton.disabled = false;
+                cleanupButton.disabled = false;
+            }
+        };
+        
+        // Cleanup function
+        window.cleanupTests = function() {
+            try {
+                cleanupTestResources();
+                log('test4', '🧹 Test resources cleaned up successfully');
+                
+                // Reset UI
+                Object.keys(testSections).forEach(testId => {
+                    setTestStatus(testId, '');
+                    updateProgress(testId, 0);
+                });
+                
+                document.getElementById('stats').innerHTML = '';
+                
+            } catch (error) {
+                log('test4', `❌ Cleanup error: ${error.message}`);
+            }
+        };
+        
+        // Auto-run tests if URL contains 'test'
+        if (window.location.href.includes('test')) {
+            setTimeout(() => {
+                runTests();
+            }, 1000);
+        }
+    </script>
+</body>
+</html> 

@@ -6,7 +6,7 @@ import fileManager from '../utils/fileManager';
 
 const DashboardContainer = styled.div`
   padding: 30px;
-  height: 100vh;
+  min-height: 100%;
   overflow-y: auto;
   background: linear-gradient(135deg, #000000 0%, #3d3d3d 100%);
 `;

@@ -5,9 +5,10 @@ import storage from '../utils/storage';
 import audioEngine from '../utils/audioEngine';
 import ProfessionalBeatViewport from './ProfessionalBeatViewport';
 import AutoDJEngine from '../utils/autoDJEngine';
+import optimizedAudioProcessor from '../utils/optimizedAudioProcessor';
 
 const AIDJContainer = styled.div`
-  min-height: 100vh;
+  min-height: 100%;
   background: linear-gradient(135deg, 
     #000000 0%, 
     #3d3d3d 25%, 
@@ -690,22 +691,51 @@ const AIDJ = () => {
     setQueue(tracks);
     
     if (tracks.length > 0) {
-      // Load the first track through audioEngine
-      try {
-        const firstTrack = tracks[0];
-        console.log('Loading first track:', firstTrack.title || firstTrack.name);
-        
-        // If track already has analysis data (from processing), use it directly
-        if (firstTrack.bpm && firstTrack.key) {
-          console.log(`Track already analyzed - BPM: ${firstTrack.bpm}, Key: ${firstTrack.key.name}`);
-          const loadedTrack = await audioEngine.loadTrack(firstTrack);
-          setCurrentTrack(loadedTrack);
-        } else {
-          // Track needs analysis
-          console.log('Analyzing track for BPM/key...');
-          const analyzedTrack = await audioEngine.loadTrack(firstTrack);
-          setCurrentTrack(analyzedTrack);
-        }
+              // Load the first track through optimized processor
+        try {
+          const firstTrack = tracks[0];
+          console.log('Loading first track:', firstTrack.title || firstTrack.name);
+          
+          // If track already has analysis data (from processing), use it directly
+          if (firstTrack.bpm && firstTrack.key) {
+            console.log(`Track already analyzed - BPM: ${firstTrack.bpm}, Key: ${firstTrack.key.name}`);
+            const loadedTrack = await audioEngine.loadTrack(firstTrack);
+            setCurrentTrack(loadedTrack);
+          } else {
+            // Track needs analysis - use optimized processor
+            console.log('Analyzing track with optimized processor...');
+            
+            // Create audio data for analysis
+            const audioData = {
+              sampleRate: 44100,
+              channelData: new Float32Array(44100 * 30) // Placeholder data
+            };
+            
+            const analysis = await optimizedAudioProcessor.analyzeAudioFile(
+              firstTrack.id,
+              audioData,
+              (progress) => {
+                console.log(`Analysis progress: ${progress.progress}% - ${progress.stage}`);
+              }
+            );
+            
+            // Update track with analysis data
+            const analyzedTrack = {
+              ...firstTrack,
+              bpm: analysis.bpm || 120,
+              key: { name: analysis.key || 'C Major', camelot: '8B' },
+              waveform: analysis.waveform || []
+            };
+            
+            setCurrentTrack(analyzedTrack);
+            
+            // Update storage with analysis data
+            storage.updateTrack(firstTrack.id, {
+              bpm: analyzedTrack.bpm,
+              key: analyzedTrack.key,
+              waveform: analyzedTrack.waveform
+            });
+          }
         
         // Load next track if available
         if (tracks.length > 1) {
@@ -807,30 +837,30 @@ const AIDJ = () => {
   };
 
   const executeQuickTransition = async () => {
-    if (!autoDJRef.current || !autoDJEnabled) {
-      setTransitionStatus('AutoDJ not enabled - enable AutoDJ first');
+    if (!audioEngine) {
+      setTransitionStatus('Audio system not initialized');
+      setTimeout(() => setTransitionStatus(null), 3000);
+      return;
+    }
+    
+    if (!audioEngine.nextTrack) {
+      setTransitionStatus('No next track available - add tracks to queue first');
       setTimeout(() => setTransitionStatus(null), 3000);
       return;
     }
     
     try {
-      setTransitionStatus('Executing quick transition...');
-      const result = await autoDJRef.current.executeQuickTransition();
+      setTransitionStatus('Executing refined transition...');
       
-      if (result && result.success) {
-        const message = result.message || 'Quick transition completed successfully!';
-        setTransitionStatus(message);
-        setTimeout(() => setTransitionStatus(null), 3000);
-      } else if (result && result.error) {
-        setTransitionStatus(`Quick transition failed: ${result.error}`);
-        setTimeout(() => setTransitionStatus(null), 5000);
-      } else {
-        setTransitionStatus('Quick transition failed - no suitable transition point found');
-        setTimeout(() => setTransitionStatus(null), 5000);
-      }
+      // Use the refined transition system
+      await audioEngine.triggerProfessionalTransition();
+      
+      setTransitionStatus('Refined transition completed successfully!');
+      setTimeout(() => setTransitionStatus(null), 3000);
+      
     } catch (error) {
-      console.error('Error executing quick transition:', error);
-      setTransitionStatus(`Quick transition error: ${error.message}`);
+      console.error('Error executing refined transition:', error);
+      setTransitionStatus(`Transition error: ${error.message}`);
       setTimeout(() => setTransitionStatus(null), 5000);
     }
   };
@@ -1125,10 +1155,10 @@ const AIDJ = () => {
           <TransitionControls>
             <TransitionButton 
               onClick={executeQuickTransition}
-              disabled={!autoDJEnabled}
+              disabled={!audioEngine?.nextTrack}
             >
               <Zap size={18} />
-              Quick Transition
+              Refined Transition
             </TransitionButton>
           </TransitionControls>
 

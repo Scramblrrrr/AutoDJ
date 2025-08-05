@@ -18,7 +18,12 @@ class ProfessionalAutoDJ {
       'double_drop',
       'quick_cut_with_effect',
       'vocal_over_mix',
-      'loop_transition'
+      'loop_transition',
+      'smooth_staggered',
+      'frequency_separated',
+      'energy_flow',
+      'vocal_isolated',
+      'quick_clean'
     ];
     
     // Camelot Wheel for harmonic mixing
@@ -51,20 +56,136 @@ class ProfessionalAutoDJ {
   }
 
   /**
-   * NON-BLOCKING ANALYSIS WRAPPER
-   * Prevents UI freeze by yielding control back to the main thread
+   * WEB WORKER ANALYSIS WRAPPER
+   * Uses dedicated Web Worker to prevent UI freeze during heavy analysis
+   */
+  async webWorkerAnalysis(analysisType, trackData) {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create Web Worker for analysis
+        const worker = new Worker(new URL('../workers/professionalAnalysisWorker.js', import.meta.url));
+        const analysisId = Date.now() + Math.random();
+
+        // Set up message handler
+        const handleMessage = (event) => {
+          const { type, id, result, error, success } = event.data;
+
+          if (id === analysisId) {
+            worker.removeEventListener('message', handleMessage);
+            worker.terminate();
+
+            if (success) {
+              console.log(`✅ ${analysisType} analysis complete`);
+              resolve(result);
+            } else {
+              console.warn(`${analysisType} failed, using fallback:`, error);
+              resolve(this.getAnalysisFallback());
+            }
+          }
+        };
+
+        worker.addEventListener('message', handleMessage);
+
+        // Send analysis request to worker
+        console.log(`🎵 Starting ${analysisType} analysis in Web Worker...`);
+        
+        let workerData;
+        switch (analysisType) {
+          case 'bpm':
+            workerData = { stems: this.convertStemsForWorker(trackData.stems) };
+            break;
+          case 'key':
+            workerData = { stems: this.convertStemsForWorker(trackData.stems) };
+            break;
+          case 'structure':
+            workerData = { stems: this.convertStemsForWorker(trackData.stems), beatGrid: trackData.beatGrid || [] };
+            break;
+          case 'vocal':
+            workerData = { vocalStem: this.convertAudioBufferForWorker(trackData.stems.vocals) };
+            break;
+          case 'energy':
+            workerData = { stems: this.convertStemsForWorker(trackData.stems) };
+            break;
+          default:
+            throw new Error(`Unknown analysis type: ${analysisType}`);
+        }
+
+        worker.postMessage({
+          type: `analyze-${analysisType}`,
+          data: workerData,
+          id: analysisId
+        });
+
+        // Set timeout for worker
+        setTimeout(() => {
+          worker.removeEventListener('message', handleMessage);
+          worker.terminate();
+          console.warn(`${analysisType} analysis timed out, using fallback`);
+          resolve(this.getAnalysisFallback());
+        }, 30000); // 30 second timeout
+
+      } catch (error) {
+        console.warn(`Web Worker creation failed for ${analysisType}, using fallback:`, error);
+        resolve(this.getAnalysisFallback());
+      }
+    });
+  }
+
+  /**
+   * Convert AudioBuffer to transferable data for Web Worker
+   */
+  convertAudioBufferForWorker(audioBuffer) {
+    if (!audioBuffer) return null;
+    
+    // Extract the raw audio data
+    const channelData = audioBuffer.channelData || audioBuffer;
+    const sampleRate = audioBuffer.sampleRate || 44100;
+    const length = audioBuffer.length || channelData.length;
+    
+    // Convert to regular array for transfer
+    const transferableData = {
+      channelData: Array.from(channelData),
+      sampleRate: sampleRate,
+      length: length
+    };
+    
+    return transferableData;
+  }
+
+  /**
+   * Convert stems object to transferable data for Web Worker
+   */
+  convertStemsForWorker(stems) {
+    if (!stems) return {};
+    
+    const convertedStems = {};
+    
+    for (const [stemType, audioBuffer] of Object.entries(stems)) {
+      if (audioBuffer) {
+        convertedStems[stemType] = this.convertAudioBufferForWorker(audioBuffer);
+      }
+    }
+    
+    return convertedStems;
+  }
+
+  /**
+   * NON-BLOCKING ANALYSIS WRAPPER (DEPRECATED)
+   * Kept for backward compatibility
    */
   async nonBlockingAnalysis(analysisFunction) {
-    return new Promise((resolve, reject) => {
-      setTimeout(async () => {
+    console.warn('nonBlockingAnalysis is deprecated, use webWorkerAnalysis instead');
+    // For backward compatibility, we'll use a fallback approach
+    return new Promise((resolve) => {
+      setTimeout(() => {
         try {
-          const result = await analysisFunction();
+          const result = analysisFunction();
           resolve(result);
         } catch (error) {
-          console.warn('Analysis step failed:', error);
+          console.warn('Legacy analysis failed, using fallback:', error);
           resolve(this.getAnalysisFallback());
         }
-      }, 10); // Small delay to yield control to UI thread
+      }, 10);
     });
   }
 
@@ -132,45 +253,38 @@ class ProfessionalAutoDJ {
         lastAnalyzed: Date.now()
       };
 
-      // 1. BPM AND BEAT GRID ANALYSIS (non-blocking)
+      // 1. BPM AND BEAT GRID ANALYSIS (Web Worker)
       console.log('🥁 Step 1: BPM Analysis...');
-      const bpmAnalysis = await this.nonBlockingAnalysis(() => 
-        this.advancedBPMAnalysis(trackData.stems)
-      );
+      const bpmAnalysis = await this.webWorkerAnalysis('bpm', trackData);
       analysis.bmp = bpmAnalysis.bmp || bpmAnalysis.bpm || 120;
       analysis.bpm = bpmAnalysis.bmp || bpmAnalysis.bpm || 120;
       analysis.beatGrid = bpmAnalysis.beatGrid || [];
       analysis.analysisConfidence = bpmAnalysis.confidence || 0.3;
 
-      // 2. MUSICAL KEY DETECTION (non-blocking)
+      // 2. MUSICAL KEY DETECTION (Web Worker)
       console.log('🎼 Step 2: Key Detection...');
-      const keyAnalysis = await this.nonBlockingAnalysis(() =>
-        this.advancedKeyDetection(trackData.stems)
-      );
+      const keyAnalysis = await this.webWorkerAnalysis('key', trackData);
       analysis.key = keyAnalysis.key || { name: 'C Major', mode: 'major' };
       analysis.camelotKey = keyAnalysis.camelotKey || '8B';
 
-      // 3. STRUCTURAL ANALYSIS (non-blocking)
+      // 3. STRUCTURAL ANALYSIS (Web Worker)
       console.log('🏗️ Step 3: Structure Analysis...');
-      const structureAnalysis = await this.nonBlockingAnalysis(() =>
-        this.analyzeTrackStructure(trackData.stems, analysis.beatGrid)
-      );
+      const structureAnalysis = await this.webWorkerAnalysis('structure', {
+        ...trackData,
+        beatGrid: analysis.beatGrid
+      });
       analysis.structuralSections = structureAnalysis.sections || [];
       analysis.introLength = structureAnalysis.introLength || 8;
       analysis.outroLength = structureAnalysis.outroLength || 8;
 
-      // 4. VOCAL PRESENCE DETECTION (non-blocking)
+      // 4. VOCAL PRESENCE DETECTION (Web Worker)
       console.log('🎤 Step 4: Vocal Analysis...');
-      const vocalAnalysis = await this.nonBlockingAnalysis(() =>
-        this.analyzeVocalPresence(trackData.stems.vocals)
-      );
+      const vocalAnalysis = await this.webWorkerAnalysis('vocal', trackData);
       analysis.vocalSections = vocalAnalysis.sections || [];
 
-      // 5. ENERGY PROFILE ANALYSIS (non-blocking)
+      // 5. ENERGY PROFILE ANALYSIS (Web Worker)
       console.log('⚡ Step 5: Energy Analysis...');
-      const energyProfile = await this.nonBlockingAnalysis(() =>
-        this.analyzeEnergyProfile(trackData.stems)
-      );
+      const energyProfile = await this.webWorkerAnalysis('energy', trackData);
       analysis.energyProfile = energyProfile || [];
 
       // 6. PHRASE BOUNDARY DETECTION (non-blocking)
@@ -183,9 +297,10 @@ class ProfessionalAutoDJ {
 
       // 8. CALCULATE MIX POINTS (non-blocking)
       console.log('🎚️ Step 8: Mix Point Calculation...');
-      analysis.mixInPoint = this.calculateOptimalMixInPoint(analysis);
-      analysis.mixOutPoint = this.calculateOptimalMixOutPoint(analysis);
-      analysis.bestTransitionPoints = this.findBestTransitionPoints(analysis);
+      const mixPoints = this.calculateOptimalMixPoints(analysis);
+      analysis.mixInPoint = mixPoints.mixInPoint || 0;
+      analysis.mixOutPoint = mixPoints.mixOutPoint || Math.max(0, analysis.duration - 30);
+      analysis.bestTransitionPoints = this.findTransitionPoints(analysis);
 
       // Cache the complete analysis
       this.analysisCache.set(trackData.id, analysis);
@@ -2206,6 +2321,438 @@ class ProfessionalAutoDJ {
         this.analysisCache.delete(key);
       }
     }
+  }
+
+  /**
+   * REFINED TRANSITION MECHANICS
+   * Addresses volume fluctuations, stem overlap, and frequency conflicts
+   */
+  async executeRefinedTransition(currentTrack, nextTrack, style = null) {
+    console.log(`🎵 EXECUTING REFINED TRANSITION: ${currentTrack?.title || 'Unknown'} → ${nextTrack?.title || 'Unknown'}`);
+    
+    try {
+      // Analyze both tracks if not already done
+      const currentAnalysis = await this.analyzeTrack(currentTrack);
+      const nextAnalysis = await this.analyzeTrack(nextTrack);
+      
+      if (!currentAnalysis || !nextAnalysis) {
+        console.warn('Analysis failed, using refined fallback transition');
+        return this.createRefinedFallbackTransition();
+      }
+      
+      // Determine optimal transition style
+      const transitionStyle = style || this.selectRefinedTransitionStyle(currentAnalysis, nextAnalysis);
+      console.log(`🎭 Selected refined transition style: ${transitionStyle}`);
+      
+      // Execute the chosen transition
+      try {
+        switch (transitionStyle) {
+          case 'smooth_staggered':
+            return await this.executeSmoothStaggeredTransition(currentAnalysis, nextAnalysis);
+          
+          case 'frequency_separated':
+            return await this.executeFrequencySeparatedTransition(currentAnalysis, nextAnalysis);
+          
+          case 'energy_flow':
+            return await this.executeEnergyFlowTransition(currentAnalysis, nextAnalysis);
+          
+          case 'vocal_isolated':
+            return await this.executeVocalIsolatedTransition(currentAnalysis, nextAnalysis);
+          
+          case 'quick_clean':
+            return await this.executeQuickCleanTransition(currentAnalysis, nextAnalysis);
+          
+          default:
+            return await this.executeSmoothStaggeredTransition(currentAnalysis, nextAnalysis);
+        }
+      } catch (transitionError) {
+        console.error('Refined transition execution failed, using fallback:', transitionError);
+        return this.createRefinedFallbackTransition();
+      }
+      
+    } catch (error) {
+      console.error('Refined transition failed completely:', error);
+      return this.createRefinedFallbackTransition();
+    }
+  }
+
+  /**
+   * SMOOTH STAGGERED TRANSITION
+   * Prevents volume spikes and stem overlap through careful timing
+   */
+  async executeSmoothStaggeredTransition(currentAnalysis, nextAnalysis) {
+    console.log('🌊 SMOOTH STAGGERED TRANSITION: Preventing volume spikes and overlap');
+    
+    const transitionPlan = {
+      style: 'smooth_staggered',
+      duration: 12000, // 12 seconds - optimal for smooth transitions
+      startTime: currentAnalysis.mixOutPoint,
+      
+      phases: [
+        // Phase 1: Gentle next track introduction (0-3s)
+        {
+          time: 0,
+          description: 'Gentle next track introduction',
+          actions: [
+            { track: 'B', stem: 'drums', volume: 0.15, curve: 'ease-in' },
+            { track: 'B', stem: 'bass', volume: 0.0 }, // No bass yet
+            { track: 'B', stem: 'other', volume: 0.0 }, // No other yet
+            { track: 'B', stem: 'vocals', volume: 0.0 }  // No vocals yet
+          ]
+        },
+        
+        // Phase 2: Bass introduction (3-6s)
+        {
+          time: 3000,
+          description: 'Introduce bass with current track reduction',
+          actions: [
+            { track: 'A', stem: 'bass', volume: 0.6, curve: 'ease-out' }, // Reduce current bass
+            { track: 'B', stem: 'bass', volume: 0.4, curve: 'ease-in' },  // Introduce new bass
+            { track: 'B', stem: 'drums', volume: 0.35, curve: 'linear' }  // Build drums
+          ]
+        },
+        
+        // Phase 3: Harmonic elements (6-9s)
+        {
+          time: 6000,
+          description: 'Introduce harmonic elements',
+          actions: [
+            { track: 'A', stem: 'other', volume: 0.5, curve: 'ease-out' }, // Reduce current harmonics
+            { track: 'B', stem: 'other', volume: 0.3, curve: 'ease-in' },  // Introduce new harmonics
+            { track: 'A', stem: 'drums', volume: 0.4, curve: 'ease-out' }  // Reduce current drums
+          ]
+        },
+        
+        // Phase 4: Vocal handover (9-12s)
+        {
+          time: 9000,
+          description: 'Clean vocal handover',
+          actions: [
+            { track: 'A', stem: 'vocals', volume: 0.3, curve: 'ease-out' }, // Fade out current vocals
+            { track: 'B', stem: 'vocals', volume: 0.6, curve: 'ease-in' },  // Introduce new vocals
+            { track: 'A', stem: 'all', volume: 0.0, curve: 'ease-out' },    // Complete fadeout
+            { track: 'B', stem: 'all', volume: 1.0, curve: 'ease-in' }      // Full volume
+          ]
+        }
+      ]
+    };
+    
+    return transitionPlan;
+  }
+
+  /**
+   * FREQUENCY SEPARATED TRANSITION
+   * Uses frequency filtering to prevent conflicts
+   */
+  async executeFrequencySeparatedTransition(currentAnalysis, nextAnalysis) {
+    console.log('🎛️ FREQUENCY SEPARATED TRANSITION: Preventing frequency conflicts');
+    
+    const transitionPlan = {
+      style: 'frequency_separated',
+      duration: 10000, // 10 seconds
+      startTime: currentAnalysis.mixOutPoint,
+      
+      phases: [
+        // Phase 1: High-frequency introduction (0-2.5s)
+        {
+          time: 0,
+          description: 'High-frequency elements only',
+          actions: [
+            { track: 'B', stem: 'drums', volume: 0.3, filter: 'highpass', cutoff: 2000 },
+            { track: 'B', stem: 'other', volume: 0.2, filter: 'highpass', cutoff: 3000 }
+          ]
+        },
+        
+        // Phase 2: Mid-frequency handover (2.5-5s)
+        {
+          time: 2500,
+          description: 'Mid-frequency elements',
+          actions: [
+            { track: 'A', stem: 'other', volume: 0.4, filter: 'lowpass', cutoff: 2000 },
+            { track: 'B', stem: 'other', volume: 0.5, filter: 'bandpass', low: 500, high: 3000 },
+            { track: 'B', stem: 'drums', volume: 0.6, filter: 'none' }
+          ]
+        },
+        
+        // Phase 3: Low-frequency handover (5-7.5s)
+        {
+          time: 5000,
+          description: 'Low-frequency elements',
+          actions: [
+            { track: 'A', stem: 'bass', volume: 0.3, filter: 'lowpass', cutoff: 800 },
+            { track: 'B', stem: 'bass', volume: 0.7, filter: 'lowpass', cutoff: 800 }
+          ]
+        },
+        
+        // Phase 4: Full spectrum (7.5-10s)
+        {
+          time: 7500,
+          description: 'Full spectrum handover',
+          actions: [
+            { track: 'A', stem: 'all', volume: 0.0, filter: 'none' },
+            { track: 'B', stem: 'all', volume: 1.0, filter: 'none' }
+          ]
+        }
+      ]
+    };
+    
+    return transitionPlan;
+  }
+
+  /**
+   * ENERGY FLOW TRANSITION
+   * Maintains consistent energy levels throughout
+   */
+  async executeEnergyFlowTransition(currentAnalysis, nextAnalysis) {
+    console.log('⚡ ENERGY FLOW TRANSITION: Maintaining consistent energy');
+    
+    const transitionPlan = {
+      style: 'energy_flow',
+      duration: 14000, // 14 seconds for energy flow
+      startTime: currentAnalysis.mixOutPoint,
+      
+      phases: [
+        // Phase 1: Energy preservation (0-3.5s)
+        {
+          time: 0,
+          description: 'Preserve current energy while introducing new',
+          actions: [
+            { track: 'A', stem: 'all', volume: 0.9, curve: 'linear' },     // Maintain current
+            { track: 'B', stem: 'drums', volume: 0.2, curve: 'ease-in' },  // Subtle introduction
+            { track: 'B', stem: 'bass', volume: 0.15, curve: 'ease-in' }
+          ]
+        },
+        
+        // Phase 2: Energy building (3.5-7s)
+        {
+          time: 3500,
+          description: 'Build energy in new track',
+          actions: [
+            { track: 'A', stem: 'drums', volume: 0.6, curve: 'ease-out' }, // Reduce current drums
+            { track: 'B', stem: 'drums', volume: 0.7, curve: 'ease-in' },  // Build new drums
+            { track: 'B', stem: 'other', volume: 0.4, curve: 'ease-in' }   // Add harmonics
+          ]
+        },
+        
+        // Phase 3: Energy transfer (7-10.5s)
+        {
+          time: 7000,
+          description: 'Transfer energy to new track',
+          actions: [
+            { track: 'A', stem: 'bass', volume: 0.4, curve: 'ease-out' },  // Reduce current bass
+            { track: 'B', stem: 'bass', volume: 0.8, curve: 'ease-in' },   // Build new bass
+            { track: 'A', stem: 'other', volume: 0.3, curve: 'ease-out' }  // Reduce current harmonics
+          ]
+        },
+        
+        // Phase 4: Energy completion (10.5-14s)
+        {
+          time: 10500,
+          description: 'Complete energy transfer',
+          actions: [
+            { track: 'A', stem: 'vocals', volume: 0.2, curve: 'ease-out' }, // Fade vocals
+            { track: 'B', stem: 'vocals', volume: 0.8, curve: 'ease-in' },  // Introduce vocals
+            { track: 'A', stem: 'all', volume: 0.0, curve: 'ease-out' },    // Complete fadeout
+            { track: 'B', stem: 'all', volume: 1.0, curve: 'ease-in' }      // Full energy
+          ]
+        }
+      ]
+    };
+    
+    return transitionPlan;
+  }
+
+  /**
+   * VOCAL ISOLATED TRANSITION
+   * Prevents vocal conflicts through careful timing
+   */
+  async executeVocalIsolatedTransition(currentAnalysis, nextAnalysis) {
+    console.log('🎤 VOCAL ISOLATED TRANSITION: Preventing vocal conflicts');
+    
+    // Find vocal-free sections
+    const currentVocalGap = this.findVocalGap(currentAnalysis.vocalSections, currentAnalysis.mixOutPoint);
+    const nextVocalStart = nextAnalysis.vocalSections[0];
+    
+    const transitionPlan = {
+      style: 'vocal_isolated',
+      duration: 16000, // 16 seconds for vocal management
+      startTime: currentVocalGap?.start || currentAnalysis.mixOutPoint,
+      
+      phases: [
+        // Phase 1: Instrumental foundation (0-4s)
+        {
+          time: 0,
+          description: 'Build instrumental foundation',
+          actions: [
+            { track: 'B', stem: 'drums', volume: 0.4, curve: 'ease-in' },
+            { track: 'B', stem: 'bass', volume: 0.3, curve: 'ease-in' },
+            { track: 'B', stem: 'other', volume: 0.5, curve: 'ease-in' },
+            { track: 'B', stem: 'vocals', volume: 0.0 } // NO vocals yet
+          ]
+        },
+        
+        // Phase 2: Current vocal isolation (4-8s)
+        {
+          time: 4000,
+          description: 'Isolate current track vocals',
+          actions: [
+            { track: 'A', stem: 'drums', volume: 0.3, curve: 'ease-out' },
+            { track: 'A', stem: 'bass', volume: 0.2, curve: 'ease-out' },
+            { track: 'A', stem: 'other', volume: 0.4, curve: 'ease-out' },
+            { track: 'A', stem: 'vocals', volume: 0.8, curve: 'linear' }, // Keep vocals prominent
+            { track: 'B', stem: 'all', volume: 0.6, curve: 'linear' }
+          ]
+        },
+        
+        // Phase 3: Vocal handover preparation (8-12s)
+        {
+          time: 8000,
+          description: 'Prepare for vocal handover',
+          actions: [
+            { track: 'A', stem: 'vocals', volume: 0.4, curve: 'ease-out' }, // Reduce current vocals
+            { track: 'B', stem: 'all', volume: 0.8, curve: 'linear' }       // Build new track
+          ]
+        },
+        
+        // Phase 4: Clean vocal handover (12-16s)
+        {
+          time: 12000,
+          description: 'Clean vocal handover',
+          actions: [
+            { track: 'A', stem: 'vocals', volume: 0.0, curve: 'ease-out' }, // Complete vocal fadeout
+            { track: 'B', stem: 'vocals', volume: 0.8, curve: 'ease-in' },  // Introduce new vocals
+            { track: 'A', stem: 'all', volume: 0.0, curve: 'ease-out' },    // Complete fadeout
+            { track: 'B', stem: 'all', volume: 1.0, curve: 'ease-in' }      // Full track
+          ]
+        }
+      ]
+    };
+    
+    return transitionPlan;
+  }
+
+  /**
+   * QUICK CLEAN TRANSITION
+   * Fast transition with minimal overlap
+   */
+  async executeQuickCleanTransition(currentAnalysis, nextAnalysis) {
+    console.log('⚡ QUICK CLEAN TRANSITION: Fast and clean');
+    
+    const transitionPlan = {
+      style: 'quick_clean',
+      duration: 6000, // 6 seconds - quick and clean
+      startTime: currentAnalysis.mixOutPoint,
+      
+      phases: [
+        // Phase 1: Quick introduction (0-2s)
+        {
+          time: 0,
+          description: 'Quick next track introduction',
+          actions: [
+            { track: 'B', stem: 'drums', volume: 0.5, curve: 'ease-in' },
+            { track: 'B', stem: 'bass', volume: 0.4, curve: 'ease-in' }
+          ]
+        },
+        
+        // Phase 2: Rapid handover (2-4s)
+        {
+          time: 2000,
+          description: 'Rapid element handover',
+          actions: [
+            { track: 'A', stem: 'drums', volume: 0.3, curve: 'ease-out' },
+            { track: 'A', stem: 'bass', volume: 0.2, curve: 'ease-out' },
+            { track: 'B', stem: 'other', volume: 0.6, curve: 'ease-in' }
+          ]
+        },
+        
+        // Phase 3: Final handover (4-6s)
+        {
+          time: 4000,
+          description: 'Final clean handover',
+          actions: [
+            { track: 'A', stem: 'all', volume: 0.0, curve: 'ease-out' },
+            { track: 'B', stem: 'all', volume: 1.0, curve: 'ease-in' }
+          ]
+        }
+      ]
+    };
+    
+    return transitionPlan;
+  }
+
+  /**
+   * REFINED FALLBACK TRANSITION
+   * Safe fallback with improved mechanics
+   */
+  createRefinedFallbackTransition() {
+    console.log('🔄 Creating refined fallback transition');
+    
+    return {
+      style: 'refined_fallback',
+      duration: 8000,
+      startTime: 0,
+      
+      phases: [
+        {
+          time: 0,
+          description: 'Gentle introduction',
+          actions: [
+            { track: 'B', stem: 'drums', volume: 0.2, curve: 'ease-in' },
+            { track: 'B', stem: 'bass', volume: 0.15, curve: 'ease-in' }
+          ]
+        },
+        {
+          time: 2000,
+          description: 'Gradual crossfade',
+          actions: [
+            { track: 'A', stem: 'all', volume: 0.7, curve: 'ease-out' },
+            { track: 'B', stem: 'all', volume: 0.6, curve: 'ease-in' }
+          ]
+        },
+        {
+          time: 6000,
+          description: 'Clean completion',
+          actions: [
+            { track: 'A', stem: 'all', volume: 0.0, curve: 'ease-out' },
+            { track: 'B', stem: 'all', volume: 1.0, curve: 'ease-in' }
+          ]
+        }
+      ]
+    };
+  }
+
+  /**
+   * SELECT REFINED TRANSITION STYLE
+   * Improved style selection based on track characteristics
+   */
+  selectRefinedTransitionStyle(currentAnalysis, nextAnalysis) {
+    const bpmDiff = Math.abs(currentAnalysis.bpm - nextAnalysis.bpm);
+    const keyCompatibility = this.calculateKeyCompatibility(currentAnalysis.camelotKey, nextAnalysis.camelotKey);
+    const energyDiff = this.calculateEnergyDifference(currentAnalysis, nextAnalysis);
+    const hasVocalOverlap = this.hasOverlappingVocals(currentAnalysis, nextAnalysis);
+    
+    // Refined decision matrix
+    if (hasVocalOverlap) {
+      return 'vocal_isolated'; // Handle vocal conflicts first
+    }
+    
+    if (bpmDiff > 20) {
+      return 'quick_clean'; // Large BPM difference needs quick transition
+    }
+    
+    if (keyCompatibility < 0.4) {
+      return 'frequency_separated'; // Incompatible keys need frequency separation
+    }
+    
+    if (energyDiff > 0.5) {
+      return 'energy_flow'; // High energy difference needs energy management
+    }
+    
+    if (bpmDiff < 5 && keyCompatibility > 0.8) {
+      return 'smooth_staggered'; // Compatible tracks can use smooth transition
+    }
+    
+    return 'smooth_staggered'; // Default to smooth staggered
   }
 }
 
